@@ -1,3 +1,4 @@
+use rusqlite::Connection;
 use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::Manager;
@@ -44,6 +45,7 @@ struct AppState {
     llm_groq_api_key: String,
     llm_openai_api_key: String,
     current_hotkey: String,
+    db_conn: Connection,
 }
 
 #[tauri::command]
@@ -593,6 +595,10 @@ pub fn run() {
                 words_item: words_item.clone(),
             }));
 
+            let app_data_dir = app.path().app_data_dir()?;
+            let db_conn = db::init_db(&app_data_dir)
+                .map_err(|e| format!("Failed to init database: {e}"))?;
+
             app.manage(Mutex::new(AppState {
                 recording_status: RecordingStatus::Idle,
                 audio_capture: SendableCapture(None),
@@ -605,6 +611,7 @@ pub fn run() {
                 llm_groq_api_key: String::new(),
                 llm_openai_api_key: String::new(),
                 current_hotkey: "alt+space".to_string(),
+                db_conn,
             }));
 
             // Load API keys from environment variables for dev
@@ -673,7 +680,6 @@ pub fn run() {
             register_hotkey(app.handle(), "alt+space")?;
 
             // Check if this is the first launch
-            let app_data_dir = app.path().app_data_dir()?;
             let first_launch_flag = app_data_dir.join(".launched");
             let is_first_launch = !first_launch_flag.exists();
 
