@@ -15,18 +15,14 @@ const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
   result: { width: 300, height: 280 },
 };
 
-const MOCK_TRANSCRIPT =
-  "Main bhi soch raha tha ki we should probably refactor the authentication module before the sprint ends";
-
 export const App = () => {
   const [state, setState] = useState<WidgetState>("idle");
   const [launching, setLaunching] = useState(true);
   const [timer, setTimer] = useState("0:00");
   const [transcript, setTranscript] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const transcriptRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const secondsRef = useRef(0);
-  const isRecordingRef = useRef(false);
 
   const [isFirstRecording, markRecordingUsed] = useFirstUse("recording");
   const [isFirstStop, markStopUsed] = useFirstUse("stop");
@@ -54,78 +50,42 @@ export const App = () => {
     });
   }, [state]);
 
-  const clearTimers = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (transcriptRef.current) {
-      clearTimeout(transcriptRef.current);
-      transcriptRef.current = null;
-    }
-  }, []);
-
   const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const simulateTranscript = useCallback(() => {
-    const words = MOCK_TRANSCRIPT.split(" ");
-    let wordIndex = 0;
-
-    const addWord = () => {
-      if (!isRecordingRef.current) return;
-      if (wordIndex < words.length) {
-        const word = words[wordIndex];
-        if (word !== undefined) {
-          setTranscript((prev) => (prev ? `${prev} ${word}` : word));
-        }
-        wordIndex++;
-        const delay = 120 + Math.random() * 180;
-        transcriptRef.current = setTimeout(addWord, delay);
-      }
-    };
-
-    transcriptRef.current = setTimeout(addWord, 300);
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
   }, []);
 
   const handleStartRecording = useCallback(() => {
-    setState("recording");
-    isRecordingRef.current = true;
     setTranscript("");
-    secondsRef.current = 0;
-    setTimer("0:00");
+    setError(null);
     markRecordingUsed();
 
-    timerRef.current = setInterval(() => {
-      secondsRef.current += 1;
-      setTimer(formatTime(secondsRef.current));
-    }, 1000);
-
-    simulateTranscript();
-  }, [simulateTranscript, markRecordingUsed]);
+    invoke("start_recording").catch((err: unknown) => {
+      console.error("Failed to start recording:", err);
+      setError(String(err));
+      setTimeout(() => setError(null), 3000);
+    });
+  }, [markRecordingUsed]);
 
   const handleStopRecording = useCallback(() => {
-    isRecordingRef.current = false;
-    clearTimers();
+    clearTimer();
     markStopUsed();
 
-    const durationSeconds = secondsRef.current;
-    const currentTranscript = transcript;
-    const wordCount = currentTranscript.split(/\s+/).filter(Boolean).length;
-
-    sessionStore.addTranscription({
-      timestamp: Date.now(),
-      originalText: currentTranscript,
-      polishedText: currentTranscript,
-      wordCount,
-      durationSeconds,
+    invoke("stop_recording").catch((err: unknown) => {
+      console.error("Failed to stop recording:", err);
+      setError(String(err));
+      setState("idle");
+      setTimeout(() => setError(null), 3000);
     });
-
-    setState("result");
-  }, [clearTimers, markStopUsed, transcript]);
+  }, [clearTimer, markStopUsed]);
 
   const handleDismiss = useCallback(() => {
     setState("idle");
@@ -149,27 +109,74 @@ export const App = () => {
     setState("idle");
   }, [transcript]);
 
+  // Listen for Tauri events from Rust backend
   useEffect(() => {
-    const unlisten = listen("start-recording", () => {
-      if (state === "idle") {
-        handleStartRecording();
-      }
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [state, handleStartRecording]);
+    const unlisteners = [
+      listen("recording-started", () => {
+        setState("recording");
+        secondsRef.current = 0;
+        setTimer("0:00");
 
+        timerRef.current = setInterval(() => {
+          secondsRef.current += 1;
+          setTimer(formatTime(secondsRef.current));
+        }, 1000);
+      }),
+
+      listen<string>("transcription-partial", (event) => {
+        setTranscript(event.payload);
+      }),
+
+      listen<string>("transcription-result", (event) => {
+        clearTimer();
+        const finalText = event.payload;
+        setTranscript(finalText);
+
+        const durationSeconds = secondsRef.current;
+        const wordCount = finalText.split(/\s+/).filter(Boolean).length;
+
+        sessionStore.addTranscription({
+          timestamp: Date.now(),
+          originalText: finalText,
+          polishedText: finalText,
+          wordCount,
+          durationSeconds,
+        });
+
+        setState("result");
+      }),
+
+      listen<string>("recording-error", (event) => {
+        clearTimer();
+        setError(event.payload);
+        setState("idle");
+        setTimeout(() => setError(null), 4000);
+      }),
+    ];
+
+    return () => {
+      for (const unlisten of unlisteners) {
+        unlisten.then((fn) => fn());
+      }
+    };
+  }, [clearTimer]);
+
+  // Cleanup timer on unmount
   useEffect(() => {
-    return clearTimers;
-  }, [clearTimers]);
+    return clearTimer;
+  }, [clearTimer]);
 
   return (
     <div className={`widget-wrapper ${launching ? "widget-wrapper--launching" : ""}`}>
-      {state === "idle" && (
+      {error && (
+        <div className="widget-error">
+          <span className="widget-error__text">{error}</span>
+        </div>
+      )}
+      {!error && state === "idle" && (
         <IdlePill onActivate={handleStartRecording} showHint={isFirstRecording} />
       )}
-      {state === "recording" && (
+      {!error && state === "recording" && (
         <RecordingCard
           transcript={transcript}
           timer={timer}
@@ -177,7 +184,7 @@ export const App = () => {
           showStopHint={isFirstStop}
         />
       )}
-      {state === "result" && (
+      {!error && state === "result" && (
         <ResultCard
           text={transcript}
           diffRanges={[]}

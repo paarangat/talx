@@ -484,6 +484,26 @@ html, body, #root {
   animation: exit 0.3s var(--ease-spring) both;
 }
 
+/* ─── Error display ─── */
+.widget-error {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  background: var(--bg-active);
+  border-radius: var(--radius-pill);
+  box-shadow: 0 4px 20px rgba(192, 80, 58, 0.15);
+  animation: enter 0.3s var(--ease-spring) both;
+  border: 1px solid var(--recording);
+}
+
+.widget-error__text {
+  font-size: 12px;
+  color: var(--rec-red);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 /* ─── Settings window override ─── */
 .settings {
   background: var(--bg-idle);
