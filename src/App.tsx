@@ -6,6 +6,7 @@ import { RecordingCard } from "./components/RecordingCard";
 import { ResultCard } from "./components/ResultCard";
 import { useFirstUse } from "./hooks/useFirstUse";
 import { sessionStore } from "./stores/sessionStore";
+import { computeDiffRanges } from "./utils/diffRanges";
 
 type WidgetState = "idle" | "recording" | "result";
 
@@ -21,6 +22,11 @@ export const App = () => {
   const [timer, setTimer] = useState("0:00");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [polishing, setPolishing] = useState(false);
+  const [polishFailed, setPolishFailed] = useState(false);
+  const [polishModel, setPolishModel] = useState("");
+  const [polishLatencyMs, setPolishLatencyMs] = useState(0);
+  const [diffRanges, setDiffRanges] = useState<Array<{ start: number; end: number }>>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secondsRef = useRef(0);
 
@@ -132,21 +138,54 @@ export const App = () => {
 
       listen<string>("transcription-result", (event) => {
         clearTimer();
-        const finalText = event.payload;
-        setTranscript(finalText);
+        const rawText = event.payload;
+        setTranscript(rawText);
+        setPolishing(true);
+        setPolishFailed(false);
 
         const durationSeconds = secondsRef.current;
-        const wordCount = finalText.split(/\s+/).filter(Boolean).length;
+        const wordCount = rawText.split(/\s+/).filter(Boolean).length;
 
-        sessionStore.addTranscription({
-          timestamp: Date.now(),
-          originalText: finalText,
-          polishedText: finalText,
-          wordCount,
-          durationSeconds,
-        });
+        invoke<{ polished_text: string; model: string; latency_ms: number }>(
+          "polish_transcript",
+          { text: rawText },
+        )
+          .then((result) => {
+            setTranscript(result.polished_text);
+            setPolishModel(result.model);
+            setPolishLatencyMs(result.latency_ms);
+            setDiffRanges(computeDiffRanges(rawText, result.polished_text));
+            setPolishFailed(false);
 
-        setState("result");
+            sessionStore.addTranscription({
+              timestamp: Date.now(),
+              originalText: rawText,
+              polishedText: result.polished_text,
+              wordCount: result.polished_text.split(/\s+/).filter(Boolean).length,
+              durationSeconds,
+            });
+
+            setPolishing(false);
+            setState("result");
+          })
+          .catch((err: unknown) => {
+            console.error("Polishing failed:", err);
+            setPolishFailed(true);
+            setPolishModel("raw");
+            setPolishLatencyMs(0);
+            setDiffRanges([]);
+
+            sessionStore.addTranscription({
+              timestamp: Date.now(),
+              originalText: rawText,
+              polishedText: rawText,
+              wordCount,
+              durationSeconds,
+            });
+
+            setPolishing(false);
+            setState("result");
+          });
       }),
 
       listen<string>("recording-error", (event) => {
@@ -185,15 +224,18 @@ export const App = () => {
           timer={timer}
           onStop={handleStopRecording}
           showStopHint={isFirstStop}
+          polishing={polishing}
         />
       )}
       {!error && state === "result" && (
         <ResultCard
           text={transcript}
-          diffRanges={[]}
+          diffRanges={diffRanges}
           wordCount={transcript.split(/\s+/).filter(Boolean).length}
-          latencyMs={0}
+          latencyMs={polishLatencyMs}
           cost="$0.00"
+          model={polishModel}
+          polished={!polishFailed}
           onPaste={handlePaste}
           onCopy={handleCopy}
           onDismiss={handleDismiss}
