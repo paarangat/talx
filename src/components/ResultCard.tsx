@@ -7,6 +7,8 @@ interface ResultCardProps {
   wordCount: number;
   latencyMs: number;
   cost: string;
+  model: string;
+  polished: boolean;
   onPaste: () => void;
   onCopy: () => void;
   onDismiss: () => void;
@@ -18,6 +20,8 @@ export const ResultCard = ({
   wordCount,
   latencyMs,
   cost,
+  model,
+  polished,
   onPaste,
   onCopy,
   onDismiss,
@@ -66,7 +70,7 @@ export const ResultCard = ({
       {/* Header */}
       <div className="result-card__header">
         <div className="result-card__status">
-          <div className="result-card__check">
+          <div className={`result-card__check ${polished ? "" : "result-card__check--unpolished"}`}>
             <svg viewBox="0 0 12 12" fill="none">
               <path
                 d="M2.5 6L5 8.5L9.5 3.5"
@@ -77,9 +81,11 @@ export const ResultCard = ({
               />
             </svg>
           </div>
-          <span className="result-card__label">Polished</span>
+          <span className={`result-card__label ${polished ? "" : "result-card__label--unpolished"}`}>
+            {polished ? "Polished" : "Unpolished"}
+          </span>
         </div>
-        <span className="result-card__model">llama-3.1-8b</span>
+        <span className="result-card__model">{model}</span>
       </div>
 
       {/* Content */}
