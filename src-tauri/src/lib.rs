@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use tauri::Emitter;
 use tauri::Manager;
 
 struct TrayState {
@@ -18,19 +19,27 @@ fn resize_window(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), S
 }
 
 #[tauri::command]
-fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("settings") {
+fn open_dashboard_window(app: tauri::AppHandle, section: Option<String>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("dashboard") {
         window.set_focus().map_err(|e| e.to_string())?;
+        if let Some(ref s) = section {
+            window
+                .emit("navigate-section", s.clone())
+                .map_err(|e: tauri::Error| e.to_string())?;
+        }
         return Ok(());
     }
 
+    let section_param = section.unwrap_or_default();
+    let url = format!("index.html?window=dashboard&section={}", section_param);
+
     let _window = tauri::WebviewWindowBuilder::new(
         &app,
-        "settings",
-        tauri::WebviewUrl::App("index.html".into()),
+        "dashboard",
+        tauri::WebviewUrl::App(url.into()),
     )
-    .title("Talx Settings")
-    .inner_size(720.0, 520.0)
+    .title("Talx")
+    .inner_size(720.0, 600.0)
     .decorations(true)
     .resizable(true)
     .center()
@@ -84,7 +93,11 @@ pub fn run() {
                 .enabled(false)
                 .build(app)?;
 
-            let open_settings = tauri::menu::MenuItemBuilder::new("Open Settings")
+            let open_dashboard = tauri::menu::MenuItemBuilder::new("Open Dashboard")
+                .id("open-dashboard")
+                .build(app)?;
+
+            let open_settings = tauri::menu::MenuItemBuilder::new("Settings")
                 .id("open-settings")
                 .build(app)?;
 
@@ -100,6 +113,7 @@ pub fn run() {
             let menu = tauri::menu::MenuBuilder::new(app)
                 .item(&status_item)
                 .separator()
+                .item(&open_dashboard)
                 .item(&open_settings)
                 .separator()
                 .item(&words_item)
@@ -120,8 +134,11 @@ pub fn run() {
                 .tooltip("Talx")
                 .on_menu_event(|app_handle: &tauri::AppHandle, event: tauri::menu::MenuEvent| {
                     match event.id().as_ref() {
+                        "open-dashboard" => {
+                            let _ = open_dashboard_window(app_handle.clone(), None);
+                        }
                         "open-settings" => {
-                            let _ = open_settings_window(app_handle.clone());
+                            let _ = open_dashboard_window(app_handle.clone(), Some("settings".to_string()));
                         }
                         "quit" => {
                             app_handle.exit(0);
@@ -130,6 +147,25 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Make the webview background transparent on macOS
+            #[cfg(target_os = "macos")]
+            {
+                #[allow(deprecated)]
+                fn clear_window_bg(window: &tauri::WebviewWindow) -> Result<(), String> {
+                    use cocoa::appkit::{NSColor, NSWindow};
+                    use cocoa::base::{id, nil};
+                    let ns_win = window.ns_window().map_err(|e| e.to_string())?;
+                    unsafe {
+                        let ns_win = ns_win as id;
+                        ns_win.setBackgroundColor_(NSColor::clearColor(nil));
+                    }
+                    Ok(())
+                }
+                if let Some(main_window) = app.get_webview_window("main") {
+                    let _ = clear_window_bg(&main_window);
+                }
+            }
 
             // Check if this is the first launch
             let app_data_dir = app.path().app_data_dir()?;
@@ -143,8 +179,7 @@ pub fn run() {
 
                 // Open settings only on first launch
                 if is_first_launch {
-                    let _ = open_settings_window(app_handle.clone());
-                    // Create the flag file so settings won't auto-open next time
+                    let _ = open_dashboard_window(app_handle.clone(), None);
                     let _ = std::fs::create_dir_all(&app_data_dir);
                     let _ = std::fs::write(&first_launch_flag, b"");
                 }
@@ -160,10 +195,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             resize_window,
-            open_settings_window,
+            open_dashboard_window,
             update_tray_status,
             update_tray_words
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Reopen { .. } = event {
+                let _ = open_dashboard_window(app_handle.clone(), None);
+            }
+        });
 }
