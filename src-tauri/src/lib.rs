@@ -4,6 +4,7 @@ use tauri::Manager;
 
 mod asr;
 mod audio;
+mod llm;
 
 use tokio::sync::mpsc;
 
@@ -38,6 +39,9 @@ struct AppState {
     audio_buffer: Option<std::sync::Arc<Mutex<Vec<i16>>>>,
     groq_api_key: String,
     soniox_api_key: String,
+    llm_provider: llm::LlmProvider,
+    llm_groq_api_key: String,
+    llm_openai_api_key: String,
 }
 
 #[tauri::command]
@@ -287,6 +291,19 @@ fn set_asr_provider(app: tauri::AppHandle, provider: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+fn set_llm_provider(app: tauri::AppHandle, provider: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+    app_state.llm_provider = match provider.as_str() {
+        "openai" => llm::LlmProvider::OpenAi,
+        _ => llm::LlmProvider::Groq,
+    };
+
+    Ok(())
+}
+
+#[tauri::command]
 fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|e| e.to_string())?;
@@ -294,6 +311,8 @@ fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(
     match provider.as_str() {
         "groq" => app_state.groq_api_key = key,
         "soniox" => app_state.soniox_api_key = key,
+        "llm_groq" => app_state.llm_groq_api_key = key,
+        "llm_openai" => app_state.llm_openai_api_key = key,
         _ => return Err(format!("Unknown provider: {provider}")),
     }
 
@@ -308,6 +327,33 @@ fn dismiss_result(app: tauri::AppHandle) -> Result<(), String> {
         app_state.recording_status = RecordingStatus::Idle;
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn polish_transcript(app: tauri::AppHandle, text: String) -> Result<llm::PolishResult, String> {
+    let (provider, api_key) = {
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|e| e.to_string())?;
+
+        let key = match app_state.llm_provider {
+            llm::LlmProvider::Groq => {
+                if app_state.llm_groq_api_key.is_empty() {
+                    return Err("Groq LLM API key not configured. Set it in Settings > API Keys.".to_string());
+                }
+                app_state.llm_groq_api_key.clone()
+            }
+            llm::LlmProvider::OpenAi => {
+                if app_state.llm_openai_api_key.is_empty() {
+                    return Err("OpenAI API key not configured. Set it in Settings > API Keys.".to_string());
+                }
+                app_state.llm_openai_api_key.clone()
+            }
+        };
+
+        (app_state.llm_provider.clone(), key)
+    };
+
+    llm::polish(&text, &provider, &api_key).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -362,6 +408,9 @@ pub fn run() {
                 audio_buffer: None,
                 groq_api_key: String::new(),
                 soniox_api_key: String::new(),
+                llm_provider: llm::LlmProvider::default(),
+                llm_groq_api_key: String::new(),
+                llm_openai_api_key: String::new(),
             }));
 
             // Load API keys from environment variables for dev
@@ -373,6 +422,14 @@ pub fn run() {
                     }
                     if let Ok(key) = std::env::var("SONIOX_API_KEY") {
                         app_state.soniox_api_key = key;
+                    }
+                    if let Ok(key) = std::env::var("GROQ_API_KEY") {
+                        if app_state.llm_groq_api_key.is_empty() {
+                            app_state.llm_groq_api_key = key;
+                        }
+                    }
+                    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+                        app_state.llm_openai_api_key = key;
                     }
                 };
             }
@@ -505,8 +562,10 @@ pub fn run() {
             start_recording,
             stop_recording,
             set_asr_provider,
+            set_llm_provider,
             set_api_key,
-            dismiss_result
+            dismiss_result,
+            polish_transcript
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
