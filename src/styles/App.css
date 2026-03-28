@@ -47,7 +47,6 @@ html, body, #root {
   gap: 10px;
   padding: 10px 20px;
   background: var(--bg-idle);
-  border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   cursor: grab;
   transition: all 0.35s var(--ease-spring);
@@ -57,7 +56,6 @@ html, body, #root {
 }
 
 .idle-pill:hover {
-  border-color: var(--border-hover);
   box-shadow: 0 6px 28px rgba(44, 37, 32, 0.12), 0 0 24px var(--accent-glow);
   transform: translateY(-1px);
 }
@@ -130,7 +128,6 @@ html, body, #root {
   position: relative;
   width: 300px;
   background: var(--bg-active);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   cursor: grab;
@@ -299,7 +296,6 @@ html, body, #root {
   position: relative;
   width: 300px;
   background: var(--bg-active);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   cursor: grab;
