@@ -16,6 +16,7 @@ enum RecordingStatus {
     Idle,
     Recording,
     Transcribing,
+    Result,
 }
 
 /// Wrapper to allow AudioCapture (which contains cpal::Stream, a !Send type)
@@ -239,7 +240,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
                 }
                 let state = app_handle.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
-                    app_state.recording_status = RecordingStatus::Idle;
+                    app_state.recording_status = RecordingStatus::Result;
                 };
             });
         }
@@ -263,7 +264,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
                 }
                 let state = app_handle.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
-                    app_state.recording_status = RecordingStatus::Idle;
+                    app_state.recording_status = RecordingStatus::Result;
                 };
             });
         }
@@ -296,6 +297,16 @@ fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(
         _ => return Err(format!("Unknown provider: {provider}")),
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+fn dismiss_result(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    if matches!(app_state.recording_status, RecordingStatus::Result) {
+        app_state.recording_status = RecordingStatus::Idle;
+    }
     Ok(())
 }
 
@@ -352,6 +363,19 @@ pub fn run() {
                 groq_api_key: String::new(),
                 soniox_api_key: String::new(),
             }));
+
+            // Load API keys from environment variables for dev
+            {
+                let state = app.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    if let Ok(key) = std::env::var("GROQ_API_KEY") {
+                        app_state.groq_api_key = key;
+                    }
+                    if let Ok(key) = std::env::var("SONIOX_API_KEY") {
+                        app_state.soniox_api_key = key;
+                    }
+                };
+            }
 
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
@@ -481,7 +505,8 @@ pub fn run() {
             start_recording,
             stop_recording,
             set_asr_provider,
-            set_api_key
+            set_api_key,
+            dismiss_result
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

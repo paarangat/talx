@@ -88,10 +88,12 @@ export const App = () => {
   }, [clearTimer, markStopUsed]);
 
   const handleDismiss = useCallback(() => {
+    invoke("dismiss_result").catch(() => {});
     setState("idle");
   }, []);
 
   const handlePaste = useCallback(() => {
+    invoke("dismiss_result").catch(() => {});
     navigator.clipboard.writeText(transcript).then(() => {
       invoke("paste_to_focused_app").catch((err: unknown) => {
         console.error("Failed to paste to focused app:", err);
@@ -103,6 +105,7 @@ export const App = () => {
   }, [transcript]);
 
   const handleCopy = useCallback(() => {
+    invoke("dismiss_result").catch(() => {});
     navigator.clipboard.writeText(transcript).catch((err: unknown) => {
       console.error("Failed to copy to clipboard:", err);
     });

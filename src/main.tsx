@@ -9,12 +9,6 @@ import "./styles/App.css";
 import "./styles/settings.css";
 import "./styles/dashboard.css";
 
-// Sync saved API keys to Rust backend on startup
-const savedTranscriptionKey = localStorage.getItem("talx:transcription-key") ?? "";
-if (savedTranscriptionKey) {
-  invoke("set_api_key", { provider: "groq", key: savedTranscriptionKey }).catch(() => {});
-  invoke("set_api_key", { provider: "soniox", key: savedTranscriptionKey }).catch(() => {});
-}
 const savedAsrProvider = localStorage.getItem("talx:asr-provider") ?? "groq";
 invoke("set_asr_provider", { provider: savedAsrProvider }).catch(() => {});
 

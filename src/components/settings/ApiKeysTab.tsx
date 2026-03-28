@@ -66,20 +66,19 @@ const ApiKeyField = ({ label, description, value, onChange }: ApiKeyFieldProps) 
 };
 
 export const ApiKeysTab = () => {
-  const [transcriptionKey, setTranscriptionKey] = useState(() => {
-    return localStorage.getItem("talx:transcription-key") ?? "";
-  });
-  const [llmKey, setLlmKey] = useState(() => {
-    return localStorage.getItem("talx:llm-key") ?? "";
-  });
+  const [groqKey, setGroqKey] = useState("");
+  const [sonioxKey, setSonioxKey] = useState("");
+  const [llmKey, setLlmKey] = useState("");
 
-  const handleTranscriptionKeyChange = (value: string) => {
-    setTranscriptionKey(value);
-    localStorage.setItem("talx:transcription-key", value);
-    // Send to both possible providers — Rust will use the right one
+  const handleGroqKeyChange = (value: string) => {
+    setGroqKey(value);
     invoke("set_api_key", { provider: "groq", key: value }).catch((err: unknown) => {
       console.error("Failed to set Groq key:", err);
     });
+  };
+
+  const handleSonioxKeyChange = (value: string) => {
+    setSonioxKey(value);
     invoke("set_api_key", { provider: "soniox", key: value }).catch((err: unknown) => {
       console.error("Failed to set Soniox key:", err);
     });
@@ -87,7 +86,6 @@ export const ApiKeysTab = () => {
 
   const handleLlmKeyChange = (value: string) => {
     setLlmKey(value);
-    localStorage.setItem("talx:llm-key", value);
   };
 
   return (
@@ -97,10 +95,16 @@ export const ApiKeysTab = () => {
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Transcription</h3>
         <ApiKeyField
-          label="Soniox / Groq API Key"
-          description="Used for speech-to-text transcription"
-          value={transcriptionKey}
-          onChange={handleTranscriptionKeyChange}
+          label="Groq API Key"
+          description="Free speech-to-text via Whisper (groq.com)"
+          value={groqKey}
+          onChange={handleGroqKeyChange}
+        />
+        <ApiKeyField
+          label="Soniox API Key"
+          description="Paid real-time streaming transcription (soniox.com)"
+          value={sonioxKey}
+          onChange={handleSonioxKeyChange}
         />
       </section>
 
