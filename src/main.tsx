@@ -1,18 +1,24 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { App } from "./App";
-import { Settings } from "./Settings";
+import { Dashboard } from "./Dashboard";
 import "./styles/tokens.css";
 import "./styles/animations.css";
 import "./styles/App.css";
 import "./styles/settings.css";
+import "./styles/dashboard.css";
 
-const windowLabel = getCurrentWindow().label;
-const isSettings = windowLabel === "settings";
+const params = new URLSearchParams(window.location.search);
+const windowType = params.get("window");
+const initialSection = params.get("section") || "home";
+
+const rootComponent =
+  windowType === "dashboard" ? (
+    <Dashboard initialSection={initialSection as "home" | "settings"} />
+  ) : (
+    <App />
+  );
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    {isSettings ? <Settings /> : <App />}
-  </React.StrictMode>,
+  <React.StrictMode>{rootComponent}</React.StrictMode>,
 );
