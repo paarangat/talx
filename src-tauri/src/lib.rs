@@ -303,6 +303,7 @@ fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let status_item = tauri::menu::MenuItemBuilder::new("Status: Idle")
                 .id("status")
@@ -391,6 +392,59 @@ pub fn run() {
                 if let Some(main_window) = app.get_webview_window("main") {
                     let _ = clear_window_bg(&main_window);
                 }
+            }
+
+            // Register global hotkey (⌥Space)
+            {
+                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+                let shortcut = "alt+space";
+
+                app.global_shortcut().on_shortcut(shortcut, {
+                    let app_handle = app.handle().clone();
+                    move |_app, _shortcut, event| {
+                        if event.state != ShortcutState::Pressed {
+                            return;
+                        }
+
+                        let is_recording = {
+                            let state = app_handle.state::<Mutex<AppState>>();
+                            let result = if let Ok(app_state) = state.lock() {
+                                matches!(app_state.recording_status, RecordingStatus::Recording)
+                            } else {
+                                false
+                            };
+                            result
+                        };
+
+                        let handle = app_handle.clone();
+                        if is_recording {
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = stop_recording(handle.clone()).await {
+                                    let _ = handle.emit("recording-error", &e);
+                                }
+                            });
+                        } else {
+                            // Only start if idle (not transcribing)
+                            let is_idle = {
+                                let state = app_handle.state::<Mutex<AppState>>();
+                                let result = if let Ok(app_state) = state.lock() {
+                                    matches!(app_state.recording_status, RecordingStatus::Idle)
+                                } else {
+                                    false
+                                };
+                                result
+                            };
+                            if is_idle {
+                                tauri::async_runtime::spawn(async move {
+                                    if let Err(e) = start_recording(handle.clone()).await {
+                                        let _ = handle.emit("recording-error", &e);
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }).map_err(|e| e.to_string())?;
             }
 
             // Check if this is the first launch
