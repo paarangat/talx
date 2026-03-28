@@ -23,6 +23,7 @@ reqwest = { version = "0.12", features = ["json", "multipart"] }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 tauri-plugin-global-shortcut = "2"
 futures-util = "0.3"
+tokio = { version = "1.50.0", features = ["sync", "macros", "time", "rt"] }
 
 [target."cfg(target_os = \"macos\")".dependencies]
 cocoa = "0.26"
