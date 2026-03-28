@@ -3,10 +3,17 @@ import { invoke } from "@tauri-apps/api/core";
 
 const ASR_PROVIDER_KEY = "talx:asr-provider";
 const LLM_PROVIDER_KEY = "talx:llm-provider";
+const AUTO_PASTE_KEY = "talx:auto-paste";
+const LANGUAGE_KEY = "talx:language";
 
 export const GeneralTab = () => {
-  const [autoPaste, setAutoPaste] = useState(true);
-  const [language, setLanguage] = useState("hi+en");
+  const [autoPaste, setAutoPaste] = useState(() => {
+    const stored = localStorage.getItem(AUTO_PASTE_KEY);
+    return stored !== null ? stored === "true" : true;
+  });
+  const [language, setLanguage] = useState(() => {
+    return localStorage.getItem(LANGUAGE_KEY) ?? "hi+en";
+  });
   const [asrProvider, setAsrProvider] = useState(() => {
     return localStorage.getItem(ASR_PROVIDER_KEY) ?? "groq";
   });
@@ -110,7 +117,11 @@ export const GeneralTab = () => {
           </div>
           <button
             className={`settings-toggle ${autoPaste ? "settings-toggle--on" : ""}`}
-            onClick={() => setAutoPaste(!autoPaste)}
+            onClick={() => {
+              const next = !autoPaste;
+              setAutoPaste(next);
+              localStorage.setItem(AUTO_PASTE_KEY, String(next));
+            }}
             role="switch"
             aria-checked={autoPaste}
           >
@@ -129,7 +140,10 @@ export const GeneralTab = () => {
           <select
             className="settings-select"
             value={language}
-            onChange={(e) => setLanguage(e.target.value)}
+            onChange={(e) => {
+              setLanguage(e.target.value);
+              localStorage.setItem(LANGUAGE_KEY, e.target.value);
+            }}
           >
             <option value="en">English</option>
             <option value="hi+en">Hindi + English</option>
