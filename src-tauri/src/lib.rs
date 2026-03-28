@@ -42,6 +42,7 @@ struct AppState {
     llm_provider: llm::LlmProvider,
     llm_groq_api_key: String,
     llm_openai_api_key: String,
+    current_hotkey: String,
 }
 
 #[tauri::command]
@@ -420,6 +421,43 @@ async fn test_api_key(provider: String, key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_hotkey(app: tauri::AppHandle, hotkey: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    let old_hotkey = {
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|e| e.to_string())?;
+        app_state.current_hotkey.clone()
+    };
+
+    // Unregister old shortcut
+    app.global_shortcut()
+        .unregister(old_hotkey.as_str())
+        .map_err(|e| format!("Failed to unregister old hotkey: {e}"))?;
+
+    // Register new shortcut
+    if let Err(e) = register_hotkey(&app, &hotkey) {
+        // Try to re-register old one on failure
+        let _ = register_hotkey(&app, &old_hotkey);
+        return Err(format!("Failed to register hotkey '{hotkey}': {e}"));
+    }
+
+    // Update state
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    app_state.current_hotkey = hotkey;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_hotkey(app: tauri::AppHandle) -> Result<String, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state.current_hotkey.clone())
+}
+
+#[tauri::command]
 fn dismiss_result(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|e| e.to_string())?;
@@ -454,6 +492,60 @@ async fn polish_transcript(app: tauri::AppHandle, text: String) -> Result<llm::P
     };
 
     llm::polish(&text, &provider, &api_key).await
+}
+
+fn register_hotkey(
+    app: &tauri::AppHandle,
+    shortcut: &str,
+) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+    let app_handle = app.clone();
+    app.global_shortcut()
+        .on_shortcut(shortcut, {
+            move |_app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+
+                let is_recording = {
+                    let state = app_handle.state::<Mutex<AppState>>();
+                    let result = if let Ok(app_state) = state.lock() {
+                        matches!(app_state.recording_status, RecordingStatus::Recording)
+                    } else {
+                        false
+                    };
+                    result
+                };
+
+                let handle = app_handle.clone();
+                if is_recording {
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = stop_recording(handle.clone()).await {
+                            let _ = handle.emit("recording-error", &e);
+                        }
+                    });
+                } else {
+                    let is_idle = {
+                        let state = app_handle.state::<Mutex<AppState>>();
+                        let result = if let Ok(app_state) = state.lock() {
+                            matches!(app_state.recording_status, RecordingStatus::Idle)
+                        } else {
+                            false
+                        };
+                        result
+                    };
+                    if is_idle {
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) = start_recording(handle.clone()).await {
+                                let _ = handle.emit("recording-error", &e);
+                            }
+                        });
+                    }
+                }
+            }
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -511,6 +603,7 @@ pub fn run() {
                 llm_provider: llm::LlmProvider::default(),
                 llm_groq_api_key: String::new(),
                 llm_openai_api_key: String::new(),
+                current_hotkey: "alt+space".to_string(),
             }));
 
             // Load API keys from environment variables for dev
@@ -576,57 +669,7 @@ pub fn run() {
             }
 
             // Register global hotkey (⌥Space)
-            {
-                use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-
-                let shortcut = "alt+space";
-
-                app.global_shortcut().on_shortcut(shortcut, {
-                    let app_handle = app.handle().clone();
-                    move |_app, _shortcut, event| {
-                        if event.state != ShortcutState::Pressed {
-                            return;
-                        }
-
-                        let is_recording = {
-                            let state = app_handle.state::<Mutex<AppState>>();
-                            let result = if let Ok(app_state) = state.lock() {
-                                matches!(app_state.recording_status, RecordingStatus::Recording)
-                            } else {
-                                false
-                            };
-                            result
-                        };
-
-                        let handle = app_handle.clone();
-                        if is_recording {
-                            tauri::async_runtime::spawn(async move {
-                                if let Err(e) = stop_recording(handle.clone()).await {
-                                    let _ = handle.emit("recording-error", &e);
-                                }
-                            });
-                        } else {
-                            // Only start if idle (not transcribing)
-                            let is_idle = {
-                                let state = app_handle.state::<Mutex<AppState>>();
-                                let result = if let Ok(app_state) = state.lock() {
-                                    matches!(app_state.recording_status, RecordingStatus::Idle)
-                                } else {
-                                    false
-                                };
-                                result
-                            };
-                            if is_idle {
-                                tauri::async_runtime::spawn(async move {
-                                    if let Err(e) = start_recording(handle.clone()).await {
-                                        let _ = handle.emit("recording-error", &e);
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }).map_err(|e| e.to_string())?;
-            }
+            register_hotkey(app.handle(), "alt+space")?;
 
             // Check if this is the first launch
             let app_data_dir = app.path().app_data_dir()?;
@@ -665,6 +708,8 @@ pub fn run() {
             set_llm_provider,
             set_api_key,
             test_api_key,
+            set_hotkey,
+            get_hotkey,
             dismiss_result,
             polish_transcript
         ])
