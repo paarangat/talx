@@ -6,6 +6,7 @@ use tauri::Manager;
 mod asr;
 mod audio;
 mod db;
+mod keychain;
 mod llm;
 
 use tokio::sync::mpsc;
@@ -536,6 +537,13 @@ fn clear_transcriptions(app: tauri::AppHandle) -> Result<(), String> {
     db::clear(&app_state.db_conn).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_today_stats(app: tauri::AppHandle, since_ms: i64) -> Result<db::TodayStats, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::get_today_stats(&app_state.db_conn, since_ms).map_err(|e| e.to_string())
+}
+
 fn register_hotkey(
     app: &tauri::AppHandle,
     shortcut: &str,
@@ -761,7 +769,8 @@ pub fn run() {
             save_transcription,
             get_transcriptions,
             delete_transcription,
-            clear_transcriptions
+            clear_transcriptions,
+            get_today_stats
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
