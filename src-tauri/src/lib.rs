@@ -2,6 +2,8 @@ use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::Manager;
 
+mod audio;
+
 struct TrayState {
     status_item: tauri::menu::MenuItem<tauri::Wry>,
     words_item: tauri::menu::MenuItem<tauri::Wry>,
