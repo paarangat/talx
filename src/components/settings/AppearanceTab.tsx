@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+const POSITION_KEY = "talx:widget-position";
+
 const positions = [
   "top-left", "top-center", "top-right",
   "middle-left", "middle-center", "middle-right",
@@ -7,7 +9,9 @@ const positions = [
 ] as const;
 
 export const AppearanceTab = () => {
-  const [activePosition, setActivePosition] = useState("top-right");
+  const [activePosition, setActivePosition] = useState(() => {
+    return localStorage.getItem(POSITION_KEY) ?? "top-right";
+  });
 
   return (
     <div className="settings-tab">
@@ -33,7 +37,10 @@ export const AppearanceTab = () => {
             <button
               key={pos}
               className={`position-grid__cell ${activePosition === pos ? "position-grid__cell--active" : ""}`}
-              onClick={() => setActivePosition(pos)}
+              onClick={() => {
+                setActivePosition(pos);
+                localStorage.setItem(POSITION_KEY, pos);
+              }}
               aria-label={pos}
             />
           ))}
