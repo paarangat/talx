@@ -497,6 +497,45 @@ async fn polish_transcript(app: tauri::AppHandle, text: String) -> Result<llm::P
     llm::polish(&text, &provider, &api_key).await
 }
 
+#[tauri::command]
+fn save_transcription(
+    app: tauri::AppHandle,
+    original_text: String,
+    polished_text: String,
+    word_count: u32,
+    duration_secs: u32,
+) -> Result<db::TranscriptionRow, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::save(&app_state.db_conn, &original_text, &polished_text, word_count, duration_secs)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_transcriptions(
+    app: tauri::AppHandle,
+    limit: u32,
+    offset: u32,
+) -> Result<Vec<db::TranscriptionRow>, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::get(&app_state.db_conn, limit, offset).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_transcription(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::delete(&app_state.db_conn, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_transcriptions(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::clear(&app_state.db_conn).map_err(|e| e.to_string())
+}
+
 fn register_hotkey(
     app: &tauri::AppHandle,
     shortcut: &str,
@@ -718,7 +757,11 @@ pub fn run() {
             set_hotkey,
             get_hotkey,
             dismiss_result,
-            polish_transcript
+            polish_transcript,
+            save_transcription,
+            get_transcriptions,
+            delete_transcription,
+            clear_transcriptions
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
