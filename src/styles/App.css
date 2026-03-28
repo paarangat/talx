@@ -269,6 +269,19 @@ html, body, #root {
   filter: brightness(1.1);
 }
 
+.recording-card__polishing {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  animation: polishing-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes polishing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .lang-pill {
   display: flex;
   align-items: center;
@@ -343,6 +356,16 @@ html, body, #root {
   font-weight: 400;
   color: var(--success);
   letter-spacing: 0.3px;
+}
+
+.result-card__check--unpolished {
+  background: var(--text-tertiary);
+}
+
+.result-card__label--unpolished {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-style: normal;
 }
 
 .result-card__model {
