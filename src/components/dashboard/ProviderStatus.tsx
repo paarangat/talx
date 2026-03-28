@@ -1,6 +1,10 @@
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
 interface Provider {
   name: string;
   type: "ASR" | "LLM";
+  provider: string;
   configured: boolean;
 }
 
@@ -8,14 +12,34 @@ interface ProviderStatusProps {
   onConfigure: () => void;
 }
 
+const PROVIDER_DEFS: Array<{ name: string; type: "ASR" | "LLM"; provider: string }> = [
+  { name: "Groq Whisper", type: "ASR", provider: "groq" },
+  { name: "Soniox", type: "ASR", provider: "soniox" },
+  { name: "Groq LLM", type: "LLM", provider: "llm_groq" },
+  { name: "OpenAI", type: "LLM", provider: "llm_openai" },
+];
+
 export const ProviderStatus = ({ onConfigure }: ProviderStatusProps) => {
-  // Hardcoded for now — will be dynamic when keychain integration lands
-  const providers: Provider[] = [
-    { name: "Groq Whisper", type: "ASR", configured: false },
-    { name: "Soniox", type: "ASR", configured: false },
-    { name: "Groq LLM", type: "LLM", configured: false },
-    { name: "OpenAI", type: "LLM", configured: false },
-  ];
+  const [providers, setProviders] = useState<Provider[]>(
+    PROVIDER_DEFS.map((d) => ({ ...d, configured: false })),
+  );
+
+  useEffect(() => {
+    const checkProviders = async () => {
+      const results = await Promise.all(
+        PROVIDER_DEFS.map(async (def) => {
+          try {
+            const key = await invoke<string | null>("get_api_key", { provider: def.provider });
+            return { ...def, configured: key !== null };
+          } catch {
+            return { ...def, configured: false };
+          }
+        }),
+      );
+      setProviders(results);
+    };
+    checkProviders();
+  }, []);
 
   return (
     <div className="provider-status">
