@@ -57,6 +57,24 @@ export const App = () => {
     });
   }, [state]);
 
+  // Sync persisted API keys to Rust backend on mount
+  useEffect(() => {
+    const keys: Array<[string, string]> = [
+      ["groq", "talx:key-groq-asr"],
+      ["soniox", "talx:key-soniox"],
+      ["llm_groq", "talx:key-groq-llm"],
+      ["llm_openai", "talx:key-openai-llm"],
+    ];
+    for (const [provider, storageKey] of keys) {
+      const key = localStorage.getItem(storageKey);
+      if (key) {
+        invoke("set_api_key", { provider, key }).catch((err: unknown) => {
+          console.error(`Failed to sync ${provider} key:`, err);
+        });
+      }
+    }
+  }, []);
+
   const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
