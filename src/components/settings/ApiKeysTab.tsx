@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface ApiKeyFieldProps {
   label: string;
@@ -65,8 +66,29 @@ const ApiKeyField = ({ label, description, value, onChange }: ApiKeyFieldProps) 
 };
 
 export const ApiKeysTab = () => {
-  const [transcriptionKey, setTranscriptionKey] = useState("");
-  const [llmKey, setLlmKey] = useState("");
+  const [transcriptionKey, setTranscriptionKey] = useState(() => {
+    return localStorage.getItem("talx:transcription-key") ?? "";
+  });
+  const [llmKey, setLlmKey] = useState(() => {
+    return localStorage.getItem("talx:llm-key") ?? "";
+  });
+
+  const handleTranscriptionKeyChange = (value: string) => {
+    setTranscriptionKey(value);
+    localStorage.setItem("talx:transcription-key", value);
+    // Send to both possible providers — Rust will use the right one
+    invoke("set_api_key", { provider: "groq", key: value }).catch((err: unknown) => {
+      console.error("Failed to set Groq key:", err);
+    });
+    invoke("set_api_key", { provider: "soniox", key: value }).catch((err: unknown) => {
+      console.error("Failed to set Soniox key:", err);
+    });
+  };
+
+  const handleLlmKeyChange = (value: string) => {
+    setLlmKey(value);
+    localStorage.setItem("talx:llm-key", value);
+  };
 
   return (
     <div className="settings-tab">
@@ -78,7 +100,7 @@ export const ApiKeysTab = () => {
           label="Soniox / Groq API Key"
           description="Used for speech-to-text transcription"
           value={transcriptionKey}
-          onChange={setTranscriptionKey}
+          onChange={handleTranscriptionKeyChange}
         />
       </section>
 
@@ -88,7 +110,7 @@ export const ApiKeysTab = () => {
           label="OpenAI / Groq API Key"
           description="Used for transcript polishing"
           value={llmKey}
-          onChange={setLlmKey}
+          onChange={handleLlmKeyChange}
         />
       </section>
     </div>

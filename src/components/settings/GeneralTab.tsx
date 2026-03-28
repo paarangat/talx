@@ -1,8 +1,26 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
+const ASR_PROVIDER_KEY = "talx:asr-provider";
 
 export const GeneralTab = () => {
   const [autoPaste, setAutoPaste] = useState(true);
   const [language, setLanguage] = useState("hi+en");
+  const [asrProvider, setAsrProvider] = useState(() => {
+    return localStorage.getItem(ASR_PROVIDER_KEY) ?? "groq";
+  });
+
+  // Sync provider to Rust on mount and change
+  useEffect(() => {
+    invoke("set_asr_provider", { provider: asrProvider }).catch((err: unknown) => {
+      console.error("Failed to set ASR provider:", err);
+    });
+  }, [asrProvider]);
+
+  const handleProviderChange = (value: string) => {
+    setAsrProvider(value);
+    localStorage.setItem(ASR_PROVIDER_KEY, value);
+  };
 
   return (
     <div className="settings-tab">
@@ -19,6 +37,28 @@ export const GeneralTab = () => {
             <span className="settings-tab__hotkey-badge">⌥ Space</span>
             <button className="settings-tab__btn-secondary">Change</button>
           </div>
+        </div>
+      </section>
+
+      <section className="settings-tab__section">
+        <h3 className="settings-tab__section-header">Speech Provider</h3>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Transcription engine</span>
+            <span className="settings-tab__description">
+              {asrProvider === "groq"
+                ? "Groq Whisper — free, batch transcription after recording stops"
+                : "Soniox — paid, real-time streaming transcription"}
+            </span>
+          </div>
+          <select
+            className="settings-select"
+            value={asrProvider}
+            onChange={(e) => handleProviderChange(e.target.value)}
+          >
+            <option value="groq">Groq Whisper (Free)</option>
+            <option value="soniox">Soniox (Paid)</option>
+          </select>
         </div>
       </section>
 
