@@ -1,0 +1,44 @@
+:root {
+  /* Backgrounds — warm, light, clean */
+  --bg-idle: #f8f4ef;
+  --bg-active: #f3efe8;
+  --bg-surface: rgba(180, 140, 90, 0.06);
+
+  /* Accent — warm copper (matches logo) */
+  --accent: #b07a3b;
+  --accent-glow: rgba(176, 122, 59, 0.22);
+  --accent-soft: rgba(176, 122, 59, 0.08);
+
+  /* Recording state — terracotta */
+  --rec-red: #c0503a;
+  --rec-glow: rgba(192, 80, 58, 0.14);
+
+  /* Success state — sage */
+  --success: #5d8a4c;
+  --success-glow: rgba(93, 138, 76, 0.12);
+
+  /* Text — warm dark tones */
+  --text-primary: #2c2520;
+  --text-secondary: rgba(44, 37, 32, 0.62);
+  --text-tertiary: rgba(44, 37, 32, 0.38);
+
+  /* Borders — warm-tinted */
+  --border: rgba(44, 37, 32, 0.10);
+  --border-hover: rgba(44, 37, 32, 0.20);
+
+  /* Typography */
+  --font-ui: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-mono: 'Space Mono', monospace;
+
+  /* Radii */
+  --radius: 14px;
+  --radius-sm: 8px;
+  --radius-pill: 50px;
+
+  /* Easing */
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Grain — inline SVG noise for texture */
+  --grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
