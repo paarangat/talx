@@ -4,6 +4,7 @@ use tauri::Manager;
 
 mod asr;
 mod audio;
+mod db;
 mod llm;
 
 use tokio::sync::mpsc;
