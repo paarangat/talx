@@ -310,6 +310,8 @@ fn set_llm_provider(app: tauri::AppHandle, provider: String) -> Result<(), Strin
 
 #[tauri::command]
 fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(), String> {
+    keychain::set_key(&provider, &key)?;
+
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|e| e.to_string())?;
 
@@ -319,6 +321,66 @@ fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(
         "llm_groq" => app_state.llm_groq_api_key = key,
         "llm_openai" => app_state.llm_openai_api_key = key,
         _ => return Err(format!("Unknown provider: {provider}")),
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_api_key(app: tauri::AppHandle, provider: String) -> Result<Option<String>, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+
+    let key = match provider.as_str() {
+        "groq" => &app_state.groq_api_key,
+        "soniox" => &app_state.soniox_api_key,
+        "llm_groq" => &app_state.llm_groq_api_key,
+        "llm_openai" => &app_state.llm_openai_api_key,
+        _ => return Err(format!("Unknown provider: {provider}")),
+    };
+
+    if key.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(key.clone()))
+    }
+}
+
+#[tauri::command]
+fn delete_api_key(app: tauri::AppHandle, provider: String) -> Result<(), String> {
+    keychain::delete_key(&provider)?;
+
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+    match provider.as_str() {
+        "groq" => app_state.groq_api_key = String::new(),
+        "soniox" => app_state.soniox_api_key = String::new(),
+        "llm_groq" => app_state.llm_groq_api_key = String::new(),
+        "llm_openai" => app_state.llm_openai_api_key = String::new(),
+        _ => return Err(format!("Unknown provider: {provider}")),
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn migrate_legacy_keys(app: tauri::AppHandle, keys: Vec<(String, String)>) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+    for (provider, key) in keys {
+        if key.is_empty() {
+            continue;
+        }
+        keychain::set_key(&provider, &key)?;
+        match provider.as_str() {
+            "groq" => app_state.groq_api_key = key,
+            "soniox" => app_state.soniox_api_key = key,
+            "llm_groq" => app_state.llm_groq_api_key = key,
+            "llm_openai" => app_state.llm_openai_api_key = key,
+            _ => {} // skip unknown providers silently during migration
+        }
     }
 
     Ok(())
@@ -661,23 +723,25 @@ pub fn run() {
                 db_conn,
             }));
 
-            // Load API keys from environment variables for dev
+            // Load API keys from keychain (with env var fallback for dev)
             {
                 let state = app.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
-                    if let Ok(key) = std::env::var("GROQ_API_KEY") {
-                        app_state.groq_api_key = key;
-                    }
-                    if let Ok(key) = std::env::var("SONIOX_API_KEY") {
-                        app_state.soniox_api_key = key;
-                    }
-                    if let Ok(key) = std::env::var("GROQ_API_KEY") {
-                        if app_state.llm_groq_api_key.is_empty() {
-                            app_state.llm_groq_api_key = key;
+                    let providers = ["groq", "soniox", "llm_groq", "llm_openai"];
+                    for provider in providers {
+                        match keychain::get_key(provider) {
+                            Ok(Some(key)) => match provider {
+                                "groq" => app_state.groq_api_key = key,
+                                "soniox" => app_state.soniox_api_key = key,
+                                "llm_groq" => app_state.llm_groq_api_key = key,
+                                "llm_openai" => app_state.llm_openai_api_key = key,
+                                _ => {}
+                            },
+                            Ok(None) => {}
+                            Err(e) => {
+                                eprintln!("Warning: failed to load {provider} key from keychain: {e}");
+                            }
                         }
-                    }
-                    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-                        app_state.llm_openai_api_key = key;
                     }
                 };
             }
@@ -761,6 +825,9 @@ pub fn run() {
             set_asr_provider,
             set_llm_provider,
             set_api_key,
+            get_api_key,
+            delete_api_key,
+            migrate_legacy_keys,
             test_api_key,
             set_hotkey,
             get_hotkey,
