@@ -75,6 +75,16 @@ export const App = () => {
     }
   }, []);
 
+  // Sync persisted hotkey to Rust backend on mount
+  useEffect(() => {
+    const savedHotkey = localStorage.getItem("talx:hotkey");
+    if (savedHotkey && savedHotkey !== "alt+space") {
+      invoke("set_hotkey", { hotkey: savedHotkey }).catch((err: unknown) => {
+        console.error("Failed to sync hotkey:", err);
+      });
+    }
+  }, []);
+
   const formatTime = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
