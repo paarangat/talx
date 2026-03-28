@@ -16,14 +16,6 @@ const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
 const MOCK_TRANSCRIPT =
   "Main bhi soch raha tha ki we should probably refactor the authentication module before the sprint ends";
 
-const MOCK_RESULT = {
-  text: "I was thinking we should probably refactor the authentication module before the sprint ends.",
-  diffRanges: [{ start: 27, end: 44 }],
-  wordCount: 42,
-  latencyMs: 620,
-  cost: "$0.0003",
-};
-
 export const App = () => {
   const [state, setState] = useState<WidgetState>("idle");
   const [launching, setLaunching] = useState(true);
@@ -32,6 +24,7 @@ export const App = () => {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const transcriptRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const secondsRef = useRef(0);
+  const isRecordingRef = useRef(false);
 
   const [isFirstRecording, markRecordingUsed] = useFirstUse("recording");
   const [isFirstStop, markStopUsed] = useFirstUse("stop");
@@ -46,13 +39,17 @@ export const App = () => {
   useEffect(() => {
     const size = WINDOW_SIZES[state];
     invoke("resize_window", { width: size.width, height: size.height }).catch(
-      () => {},
+      (err: unknown) => {
+        console.error("Failed to resize window:", err);
+      },
     );
   }, [state]);
 
   // Sync tray status
   useEffect(() => {
-    invoke("update_tray_status", { status: state }).catch(() => {});
+    invoke("update_tray_status", { status: state }).catch((err: unknown) => {
+      console.error("Failed to update tray status:", err);
+    });
   }, [state]);
 
   const clearTimers = useCallback(() => {
@@ -77,6 +74,7 @@ export const App = () => {
     let wordIndex = 0;
 
     const addWord = () => {
+      if (!isRecordingRef.current) return;
       if (wordIndex < words.length) {
         const word = words[wordIndex];
         if (word !== undefined) {
@@ -93,6 +91,7 @@ export const App = () => {
 
   const handleStartRecording = useCallback(() => {
     setState("recording");
+    isRecordingRef.current = true;
     setTranscript("");
     secondsRef.current = 0;
     setTimer("0:00");
@@ -107,6 +106,7 @@ export const App = () => {
   }, [simulateTranscript, markRecordingUsed]);
 
   const handleStopRecording = useCallback(() => {
+    isRecordingRef.current = false;
     clearTimers();
     markStopUsed();
     setState("result");
@@ -117,12 +117,22 @@ export const App = () => {
   }, []);
 
   const handlePaste = useCallback(() => {
+    navigator.clipboard.writeText(transcript).then(() => {
+      invoke("paste_to_focused_app").catch((err: unknown) => {
+        console.error("Failed to paste to focused app:", err);
+      });
+    }).catch((err: unknown) => {
+      console.error("Failed to write to clipboard:", err);
+    });
     setState("idle");
-  }, []);
+  }, [transcript]);
 
   const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(transcript).catch((err: unknown) => {
+      console.error("Failed to copy to clipboard:", err);
+    });
     setState("idle");
-  }, []);
+  }, [transcript]);
 
   useEffect(() => {
     return clearTimers;
@@ -143,11 +153,11 @@ export const App = () => {
       )}
       {state === "result" && (
         <ResultCard
-          text={MOCK_RESULT.text}
-          diffRanges={MOCK_RESULT.diffRanges}
-          wordCount={MOCK_RESULT.wordCount}
-          latencyMs={MOCK_RESULT.latencyMs}
-          cost={MOCK_RESULT.cost}
+          text={transcript}
+          diffRanges={[]}
+          wordCount={transcript.split(/\s+/).filter(Boolean).length}
+          latencyMs={0}
+          cost="$0.00"
           onPaste={handlePaste}
           onCopy={handleCopy}
           onDismiss={handleDismiss}

@@ -8,7 +8,9 @@ export const useDrag = () => {
     if (target.closest("button")) return;
 
     e.preventDefault();
-    getCurrentWindow().startDragging().catch(() => {});
+    getCurrentWindow().startDragging().catch((err: unknown) => {
+      console.error("Failed to start dragging:", err);
+    });
   }, []);
 
   return onMouseDown;

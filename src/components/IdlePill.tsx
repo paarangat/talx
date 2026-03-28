@@ -11,7 +11,9 @@ export const IdlePill = ({ onActivate, showHint }: IdlePillProps) => {
 
   const handleSettings = (e: React.MouseEvent) => {
     e.stopPropagation();
-    invoke("open_settings_window").catch(() => {});
+    invoke("open_settings_window").catch((err: unknown) => {
+      console.error("Failed to open settings window:", err);
+    });
   };
 
   return (
@@ -24,9 +26,11 @@ export const IdlePill = ({ onActivate, showHint }: IdlePillProps) => {
           <path d="M13.5 8a5.5 5.5 0 0 0-.1-.8l1.3-1-.7-1.2-1.5.5a5.5 5.5 0 0 0-1.2-.7L11 3.3h-1.4l-.3 1.5a5.5 5.5 0 0 0-1.2.7l-1.5-.5-.7 1.2 1.3 1a5.5 5.5 0 0 0 0 1.6l-1.3 1 .7 1.2 1.5-.5c.4.3.7.5 1.2.7l.3 1.5H11l.3-1.5c.4-.2.8-.4 1.2-.7l1.5.5.7-1.2-1.3-1a5.5 5.5 0 0 0 .1-.8Z" />
         </svg>
       </button>
-      <span className={`idle-pill__hotkey ${!showHint ? "shortcut-hint--hidden" : ""}`}>
-        ⌥ Space
-      </span>
+      {showHint && (
+        <span className="idle-pill__hotkey">
+          ⌥ Space
+        </span>
+      )}
     </div>
   );
 };

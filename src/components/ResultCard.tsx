@@ -60,7 +60,7 @@ export const ResultCard = ({
   };
 
   return (
-    <div className="result-card" onClick={onDismiss} onMouseDown={onDragStart}>
+    <div className="result-card" onMouseDown={onDragStart}>
       <DragHandle />
 
       {/* Header */}
@@ -91,21 +91,21 @@ export const ResultCard = ({
       <div className="result-card__actions">
         <button
           className="result-card__btn result-card__btn--paste"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPaste();
-          }}
+          onClick={onPaste}
         >
           Paste
         </button>
         <button
           className="result-card__btn result-card__btn--copy"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCopy();
-          }}
+          onClick={onCopy}
         >
           Copy
+        </button>
+        <button
+          className="result-card__btn result-card__btn--dismiss"
+          onClick={onDismiss}
+        >
+          Dismiss
         </button>
       </div>
 

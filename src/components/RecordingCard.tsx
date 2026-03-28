@@ -26,7 +26,7 @@ export const RecordingCard = ({ transcript, timer, onStop, showStopHint }: Recor
   );
 
   return (
-    <div className="recording-card" onClick={onStop} onMouseDown={onDragStart}>
+    <div className="recording-card" onMouseDown={onDragStart}>
       <DragHandle />
 
       {/* Header */}
@@ -70,9 +70,14 @@ export const RecordingCard = ({ transcript, timer, onStop, showStopHint }: Recor
           <span className="lang-pill__dot" />
           Hindi + English
         </span>
-        <span className={`stop-hint ${!showStopHint ? "shortcut-hint--hidden" : ""}`}>
-          ⌥Space to stop
-        </span>
+        <button className="recording-card__stop-btn" onClick={onStop}>
+          Stop
+        </button>
+        {showStopHint && (
+          <span className="stop-hint">
+            ⌥Space to stop
+          </span>
+        )}
       </div>
     </div>
   );

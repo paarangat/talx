@@ -3,6 +3,7 @@ use tauri::Manager;
 
 struct TrayState {
     status_item: tauri::menu::MenuItem<tauri::Wry>,
+    words_item: tauri::menu::MenuItem<tauri::Wry>,
 }
 
 #[tauri::command]
@@ -59,6 +60,20 @@ fn update_tray_status(app: tauri::AppHandle, status: String) -> Result<(), Strin
     Ok(())
 }
 
+#[tauri::command]
+fn update_tray_words(app: tauri::AppHandle, count: u32) -> Result<(), String> {
+    let state = app.state::<Mutex<TrayState>>();
+    let tray_state = state.lock().map_err(|e| e.to_string())?;
+
+    let label = format!("Words today: {}", count);
+    tray_state
+        .words_item
+        .set_text(&label)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -94,10 +109,10 @@ pub fn run() {
 
             app.manage(Mutex::new(TrayState {
                 status_item: status_item.clone(),
+                words_item: words_item.clone(),
             }));
 
-            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
-                .expect("failed to load tray icon");
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
             let _tray = tauri::tray::TrayIconBuilder::with_id("main-tray")
                 .menu(&menu)
@@ -116,16 +131,25 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Open settings dashboard + show widget with delay
+            // Check if this is the first launch
+            let app_data_dir = app.path().app_data_dir()?;
+            let first_launch_flag = app_data_dir.join(".launched");
+            let is_first_launch = !first_launch_flag.exists();
+
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
                 // Small delay to let the app fully initialize
                 std::thread::sleep(std::time::Duration::from_millis(300));
 
-                // Open settings (dashboard) first
-                let _ = open_settings_window(app_handle.clone());
+                // Open settings only on first launch
+                if is_first_launch {
+                    let _ = open_settings_window(app_handle.clone());
+                    // Create the flag file so settings won't auto-open next time
+                    let _ = std::fs::create_dir_all(&app_data_dir);
+                    let _ = std::fs::write(&first_launch_flag, b"");
+                }
 
-                // Show widget after dashboard is up
+                // Show widget after app is ready
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 if let Some(main_window) = app_handle.get_webview_window("main") {
                     let _ = main_window.show();
@@ -137,7 +161,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             resize_window,
             open_settings_window,
-            update_tray_status
+            update_tray_status,
+            update_tray_words
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
