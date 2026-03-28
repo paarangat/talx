@@ -2,12 +2,16 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 const ASR_PROVIDER_KEY = "talx:asr-provider";
+const LLM_PROVIDER_KEY = "talx:llm-provider";
 
 export const GeneralTab = () => {
   const [autoPaste, setAutoPaste] = useState(true);
   const [language, setLanguage] = useState("hi+en");
   const [asrProvider, setAsrProvider] = useState(() => {
     return localStorage.getItem(ASR_PROVIDER_KEY) ?? "groq";
+  });
+  const [llmProvider, setLlmProvider] = useState(() => {
+    return localStorage.getItem(LLM_PROVIDER_KEY) ?? "groq";
   });
 
   // Sync provider to Rust on mount and change
@@ -17,9 +21,20 @@ export const GeneralTab = () => {
     });
   }, [asrProvider]);
 
+  useEffect(() => {
+    invoke("set_llm_provider", { provider: llmProvider }).catch((err: unknown) => {
+      console.error("Failed to set LLM provider:", err);
+    });
+  }, [llmProvider]);
+
   const handleProviderChange = (value: string) => {
     setAsrProvider(value);
     localStorage.setItem(ASR_PROVIDER_KEY, value);
+  };
+
+  const handleLlmProviderChange = (value: string) => {
+    setLlmProvider(value);
+    localStorage.setItem(LLM_PROVIDER_KEY, value);
   };
 
   return (
@@ -58,6 +73,28 @@ export const GeneralTab = () => {
           >
             <option value="groq">Groq Whisper (Free)</option>
             <option value="soniox">Soniox (Paid)</option>
+          </select>
+        </div>
+      </section>
+
+      <section className="settings-tab__section">
+        <h3 className="settings-tab__section-header">Polish Provider</h3>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">LLM engine</span>
+            <span className="settings-tab__description">
+              {llmProvider === "groq"
+                ? "Groq LLM — free transcript polishing via Llama 3.3"
+                : "OpenAI — paid, high-quality transcript polishing"}
+            </span>
+          </div>
+          <select
+            className="settings-select"
+            value={llmProvider}
+            onChange={(e) => handleLlmProviderChange(e.target.value)}
+          >
+            <option value="groq">Groq LLM (Free)</option>
+            <option value="openai">OpenAI (Paid)</option>
           </select>
         </div>
       </section>
