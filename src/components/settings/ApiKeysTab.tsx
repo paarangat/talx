@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface ApiKeyFieldProps {
@@ -82,46 +82,37 @@ const ApiKeyField = ({ label, description, value, onChange, provider }: ApiKeyFi
   );
 };
 
-const KEY_GROQ_ASR = "talx:key-groq-asr";
-const KEY_SONIOX = "talx:key-soniox";
-const KEY_GROQ_LLM = "talx:key-groq-llm";
-const KEY_OPENAI_LLM = "talx:key-openai-llm";
-
 export const ApiKeysTab = () => {
-  const [groqKey, setGroqKey] = useState(() => localStorage.getItem(KEY_GROQ_ASR) ?? "");
-  const [sonioxKey, setSonioxKey] = useState(() => localStorage.getItem(KEY_SONIOX) ?? "");
-  const [llmGroqKey, setLlmGroqKey] = useState(() => localStorage.getItem(KEY_GROQ_LLM) ?? "");
-  const [llmOpenaiKey, setLlmOpenaiKey] = useState(() => localStorage.getItem(KEY_OPENAI_LLM) ?? "");
+  const [groqKey, setGroqKey] = useState("");
+  const [sonioxKey, setSonioxKey] = useState("");
+  const [llmGroqKey, setLlmGroqKey] = useState("");
+  const [llmOpenaiKey, setLlmOpenaiKey] = useState("");
 
-  const handleGroqKeyChange = (value: string) => {
-    setGroqKey(value);
-    localStorage.setItem(KEY_GROQ_ASR, value);
-    invoke("set_api_key", { provider: "groq", key: value }).catch((err: unknown) => {
-      console.error("Failed to set Groq key:", err);
-    });
-  };
+  // Load keys from backend on mount
+  useEffect(() => {
+    const loadKeys = async () => {
+      const providers: Array<[string, (v: string) => void]> = [
+        ["groq", setGroqKey],
+        ["soniox", setSonioxKey],
+        ["llm_groq", setLlmGroqKey],
+        ["llm_openai", setLlmOpenaiKey],
+      ];
+      for (const [provider, setter] of providers) {
+        try {
+          const key = await invoke<string | null>("get_api_key", { provider });
+          if (key) setter(key);
+        } catch (err: unknown) {
+          console.error(`Failed to load ${provider} key:`, err);
+        }
+      }
+    };
+    loadKeys();
+  }, []);
 
-  const handleSonioxKeyChange = (value: string) => {
-    setSonioxKey(value);
-    localStorage.setItem(KEY_SONIOX, value);
-    invoke("set_api_key", { provider: "soniox", key: value }).catch((err: unknown) => {
-      console.error("Failed to set Soniox key:", err);
-    });
-  };
-
-  const handleLlmGroqKeyChange = (value: string) => {
-    setLlmGroqKey(value);
-    localStorage.setItem(KEY_GROQ_LLM, value);
-    invoke("set_api_key", { provider: "llm_groq", key: value }).catch((err: unknown) => {
-      console.error("Failed to set Groq LLM key:", err);
-    });
-  };
-
-  const handleLlmOpenaiKeyChange = (value: string) => {
-    setLlmOpenaiKey(value);
-    localStorage.setItem(KEY_OPENAI_LLM, value);
-    invoke("set_api_key", { provider: "llm_openai", key: value }).catch((err: unknown) => {
-      console.error("Failed to set OpenAI key:", err);
+  const handleKeyChange = (provider: string, setter: (v: string) => void) => (value: string) => {
+    setter(value);
+    invoke("set_api_key", { provider, key: value }).catch((err: unknown) => {
+      console.error(`Failed to set ${provider} key:`, err);
     });
   };
 
@@ -135,14 +126,14 @@ export const ApiKeysTab = () => {
           label="Groq API Key"
           description="Free speech-to-text via Whisper (groq.com)"
           value={groqKey}
-          onChange={handleGroqKeyChange}
+          onChange={handleKeyChange("groq", setGroqKey)}
           provider="groq"
         />
         <ApiKeyField
           label="Soniox API Key"
           description="Paid real-time streaming transcription (soniox.com)"
           value={sonioxKey}
-          onChange={handleSonioxKeyChange}
+          onChange={handleKeyChange("soniox", setSonioxKey)}
           provider="soniox"
         />
       </section>
@@ -153,14 +144,14 @@ export const ApiKeysTab = () => {
           label="Groq LLM Key"
           description="Free transcript polishing via Llama 3.3 (groq.com)"
           value={llmGroqKey}
-          onChange={handleLlmGroqKeyChange}
+          onChange={handleKeyChange("llm_groq", setLlmGroqKey)}
           provider="llm_groq"
         />
         <ApiKeyField
           label="OpenAI Key"
           description="Paid transcript polishing via GPT-4o mini (openai.com)"
           value={llmOpenaiKey}
-          onChange={handleLlmOpenaiKeyChange}
+          onChange={handleKeyChange("llm_openai", setLlmOpenaiKey)}
           provider="llm_openai"
         />
       </section>
