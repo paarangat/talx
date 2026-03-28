@@ -219,6 +219,28 @@ export const GeneralTab = () => {
           </select>
         </div>
       </section>
+
+      <section className="settings-tab__section">
+        <h3 className="settings-tab__section-header">Data</h3>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Transcription history</span>
+            <span className="settings-tab__description">
+              Delete all saved transcriptions from this device
+            </span>
+          </div>
+          <button
+            className="settings-tab__btn-danger"
+            onClick={() => {
+              invoke("clear_transcriptions").catch((err: unknown) => {
+                console.error("Failed to clear transcriptions:", err);
+              });
+            }}
+          >
+            Clear History
+          </button>
+        </div>
+      </section>
     </div>
   );
 };

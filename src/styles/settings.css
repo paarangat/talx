@@ -201,6 +201,25 @@
   background: rgba(44, 37, 32, 0.04);
 }
 
+/* ─── Danger button ─── */
+.settings-tab__btn-danger {
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid #c0503a;
+  background: transparent;
+  color: #c0503a;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-tab__btn-danger:hover {
+  background: #c0503a;
+  color: #faf6f0;
+}
+
 /* ─── Toggle switch ─── */
 .settings-toggle {
   width: 40px;
