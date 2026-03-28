@@ -29,6 +29,7 @@ export const App = () => {
   const [diffRanges, setDiffRanges] = useState<Array<{ start: number; end: number }>>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secondsRef = useRef(0);
+  const polishGenRef = useRef(0);
 
   const [isFirstRecording, markRecordingUsed] = useFirstUse("recording");
   const [isFirstStop, markStopUsed] = useFirstUse("stop");
@@ -72,6 +73,12 @@ export const App = () => {
   const handleStartRecording = useCallback(() => {
     setTranscript("");
     setError(null);
+    setPolishing(false);
+    setPolishFailed(false);
+    setPolishModel("");
+    setPolishLatencyMs(0);
+    setDiffRanges([]);
+    polishGenRef.current += 1;
     markRecordingUsed();
 
     invoke("start_recording").catch((err: unknown) => {
@@ -145,12 +152,15 @@ export const App = () => {
 
         const durationSeconds = secondsRef.current;
         const wordCount = rawText.split(/\s+/).filter(Boolean).length;
+        const gen = polishGenRef.current;
 
         invoke<{ polished_text: string; model: string; latency_ms: number }>(
           "polish_transcript",
           { text: rawText },
         )
           .then((result) => {
+            if (polishGenRef.current !== gen) return;
+
             setTranscript(result.polished_text);
             setPolishModel(result.model);
             setPolishLatencyMs(result.latency_ms);
@@ -169,6 +179,8 @@ export const App = () => {
             setState("result");
           })
           .catch((err: unknown) => {
+            if (polishGenRef.current !== gen) return;
+
             console.error("Polishing failed:", err);
             setPolishFailed(true);
             setPolishModel("raw");
