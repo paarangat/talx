@@ -17,7 +17,7 @@ export const Dashboard = ({ initialSection }: DashboardProps) => {
       <div className="dashboard__grain" />
       <DashboardSidebar activePage={activePage} onPageChange={setActivePage} />
       <main className="dashboard__content">
-        {activePage === "home" && <HomePage />}
+        {activePage === "home" && <HomePage onNavigate={setActivePage} />}
         {activePage === "settings" && <Settings />}
       </main>
     </div>

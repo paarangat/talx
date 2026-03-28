@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { IdlePill } from "./components/IdlePill";
 import { RecordingCard } from "./components/RecordingCard";
 import { ResultCard } from "./components/ResultCard";
@@ -147,6 +148,17 @@ export const App = () => {
     });
     setState("idle");
   }, [transcript]);
+
+  useEffect(() => {
+    const unlisten = listen("start-recording", () => {
+      if (state === "idle") {
+        handleStartRecording();
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [state, handleStartRecording]);
 
   useEffect(() => {
     return clearTimers;
