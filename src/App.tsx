@@ -57,21 +57,33 @@ export const App = () => {
     });
   }, [state]);
 
-  // Sync persisted API keys to Rust backend on mount
+  // One-time migration: move any legacy localStorage keys to OS keychain
   useEffect(() => {
-    const keys: Array<[string, string]> = [
+    const legacyKeys: Array<[string, string]> = [
       ["groq", "talx:key-groq-asr"],
       ["soniox", "talx:key-soniox"],
       ["llm_groq", "talx:key-groq-llm"],
       ["llm_openai", "talx:key-openai-llm"],
     ];
-    for (const [provider, storageKey] of keys) {
+
+    const keysToMigrate: Array<[string, string]> = [];
+    for (const [provider, storageKey] of legacyKeys) {
       const key = localStorage.getItem(storageKey);
       if (key) {
-        invoke("set_api_key", { provider, key }).catch((err: unknown) => {
-          console.error(`Failed to sync ${provider} key:`, err);
-        });
+        keysToMigrate.push([provider, key]);
       }
+    }
+
+    if (keysToMigrate.length > 0) {
+      invoke("migrate_legacy_keys", { keys: keysToMigrate })
+        .then(() => {
+          for (const [, storageKey] of legacyKeys) {
+            localStorage.removeItem(storageKey);
+          }
+        })
+        .catch((err: unknown) => {
+          console.error("Failed to migrate legacy keys:", err);
+        });
     }
   }, []);
 
