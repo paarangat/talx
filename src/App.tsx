@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { IdlePill } from "./components/IdlePill";
 import { RecordingCard } from "./components/RecordingCard";
 import { ResultCard } from "./components/ResultCard";
@@ -195,10 +195,18 @@ export const App = () => {
             setDiffRanges(computeDiffRanges(rawText, result.polished_text));
             setPolishFailed(false);
 
-            sessionStore.addTranscription({
-              timestamp: Date.now(),
+            invoke("save_transcription", {
               originalText: rawText,
               polishedText: result.polished_text,
+              wordCount: result.polished_text.split(/\s+/).filter(Boolean).length,
+              durationSecs: durationSeconds,
+            }).then(() => {
+              emit("transcription-saved").catch(() => {});
+            }).catch((err: unknown) => {
+              console.error("Failed to save transcription:", err);
+            });
+
+            sessionStore.addStats({
               wordCount: result.polished_text.split(/\s+/).filter(Boolean).length,
               durationSeconds,
             });
@@ -215,10 +223,18 @@ export const App = () => {
             setPolishLatencyMs(0);
             setDiffRanges([]);
 
-            sessionStore.addTranscription({
-              timestamp: Date.now(),
+            invoke("save_transcription", {
               originalText: rawText,
               polishedText: rawText,
+              wordCount,
+              durationSecs: durationSeconds,
+            }).then(() => {
+              emit("transcription-saved").catch(() => {});
+            }).catch((err: unknown) => {
+              console.error("Failed to save transcription:", err);
+            });
+
+            sessionStore.addStats({
               wordCount,
               durationSeconds,
             });

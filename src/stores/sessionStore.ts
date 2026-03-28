@@ -1,32 +1,15 @@
 type Listener = () => void;
 
-interface TranscriptionEntry {
-  id: string;
-  timestamp: number;
-  originalText: string;
-  polishedText: string;
-  wordCount: number;
-  durationSeconds: number;
-}
-
 interface SessionStats {
   wordsToday: number;
   recordingSecondsToday: number;
   sessionsToday: number;
 }
 
-interface SessionState {
-  stats: SessionStats;
-  transcriptions: TranscriptionEntry[];
-}
-
-const state: SessionState = {
-  stats: {
-    wordsToday: 0,
-    recordingSecondsToday: 0,
-    sessionsToday: 0,
-  },
-  transcriptions: [],
+const state: SessionStats = {
+  wordsToday: 0,
+  recordingSecondsToday: 0,
+  sessionsToday: 0,
 };
 
 const listeners = new Set<Listener>();
@@ -39,22 +22,13 @@ const notify = () => {
 
 export const sessionStore = {
   getStats(): SessionStats {
-    return state.stats;
+    return state;
   },
 
-  getTranscriptions(): TranscriptionEntry[] {
-    return state.transcriptions;
-  },
-
-  addTranscription(entry: Omit<TranscriptionEntry, "id">): void {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    state.transcriptions = [{ ...entry, id }, ...state.transcriptions.slice(0, 19)];
-    state.stats = {
-      ...state.stats,
-      wordsToday: state.stats.wordsToday + entry.wordCount,
-      recordingSecondsToday: state.stats.recordingSecondsToday + entry.durationSeconds,
-      sessionsToday: state.stats.sessionsToday + 1,
-    };
+  addStats(entry: { wordCount: number; durationSeconds: number }): void {
+    state.wordsToday += entry.wordCount;
+    state.recordingSecondsToday += entry.durationSeconds;
+    state.sessionsToday += 1;
     notify();
   },
 
@@ -64,4 +38,4 @@ export const sessionStore = {
   },
 };
 
-export type { TranscriptionEntry, SessionStats };
+export type { SessionStats };
