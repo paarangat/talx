@@ -6,15 +6,26 @@ interface ApiKeyFieldProps {
   description: string;
   value: string;
   onChange: (value: string) => void;
+  provider: string;
 }
 
-const ApiKeyField = ({ label, description, value, onChange }: ApiKeyFieldProps) => {
+const ApiKeyField = ({ label, description, value, onChange, provider }: ApiKeyFieldProps) => {
   const [visible, setVisible] = useState(false);
-  const [testStatus, setTestStatus] = useState<"idle" | "success" | "error">("idle");
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
 
-  const handleTest = () => {
-    // Stub: simulate a test
-    setTestStatus("success");
+  const handleTest = async () => {
+    if (!value.trim()) {
+      setTestStatus("error");
+      setTimeout(() => setTestStatus("idle"), 3000);
+      return;
+    }
+    setTestStatus("testing");
+    try {
+      await invoke("test_api_key", { provider, key: value });
+      setTestStatus("success");
+    } catch {
+      setTestStatus("error");
+    }
     setTimeout(() => setTestStatus("idle"), 3000);
   };
 
@@ -51,8 +62,14 @@ const ApiKeyField = ({ label, description, value, onChange }: ApiKeyFieldProps) 
             </svg>
           </button>
         </div>
-        <button className="settings-tab__btn-secondary" onClick={handleTest}>
-          {testStatus === "success" ? (
+        <button
+          className="settings-tab__btn-secondary"
+          onClick={handleTest}
+          disabled={testStatus === "testing"}
+        >
+          {testStatus === "testing" ? (
+            <span className="api-key-field__status">...</span>
+          ) : testStatus === "success" ? (
             <span className="api-key-field__status api-key-field__status--success">✓</span>
           ) : testStatus === "error" ? (
             <span className="api-key-field__status api-key-field__status--error">✗</span>
@@ -65,14 +82,20 @@ const ApiKeyField = ({ label, description, value, onChange }: ApiKeyFieldProps) 
   );
 };
 
+const KEY_GROQ_ASR = "talx:key-groq-asr";
+const KEY_SONIOX = "talx:key-soniox";
+const KEY_GROQ_LLM = "talx:key-groq-llm";
+const KEY_OPENAI_LLM = "talx:key-openai-llm";
+
 export const ApiKeysTab = () => {
-  const [groqKey, setGroqKey] = useState("");
-  const [sonioxKey, setSonioxKey] = useState("");
-  const [llmGroqKey, setLlmGroqKey] = useState("");
-  const [llmOpenaiKey, setLlmOpenaiKey] = useState("");
+  const [groqKey, setGroqKey] = useState(() => localStorage.getItem(KEY_GROQ_ASR) ?? "");
+  const [sonioxKey, setSonioxKey] = useState(() => localStorage.getItem(KEY_SONIOX) ?? "");
+  const [llmGroqKey, setLlmGroqKey] = useState(() => localStorage.getItem(KEY_GROQ_LLM) ?? "");
+  const [llmOpenaiKey, setLlmOpenaiKey] = useState(() => localStorage.getItem(KEY_OPENAI_LLM) ?? "");
 
   const handleGroqKeyChange = (value: string) => {
     setGroqKey(value);
+    localStorage.setItem(KEY_GROQ_ASR, value);
     invoke("set_api_key", { provider: "groq", key: value }).catch((err: unknown) => {
       console.error("Failed to set Groq key:", err);
     });
@@ -80,6 +103,7 @@ export const ApiKeysTab = () => {
 
   const handleSonioxKeyChange = (value: string) => {
     setSonioxKey(value);
+    localStorage.setItem(KEY_SONIOX, value);
     invoke("set_api_key", { provider: "soniox", key: value }).catch((err: unknown) => {
       console.error("Failed to set Soniox key:", err);
     });
@@ -87,6 +111,7 @@ export const ApiKeysTab = () => {
 
   const handleLlmGroqKeyChange = (value: string) => {
     setLlmGroqKey(value);
+    localStorage.setItem(KEY_GROQ_LLM, value);
     invoke("set_api_key", { provider: "llm_groq", key: value }).catch((err: unknown) => {
       console.error("Failed to set Groq LLM key:", err);
     });
@@ -94,6 +119,7 @@ export const ApiKeysTab = () => {
 
   const handleLlmOpenaiKeyChange = (value: string) => {
     setLlmOpenaiKey(value);
+    localStorage.setItem(KEY_OPENAI_LLM, value);
     invoke("set_api_key", { provider: "llm_openai", key: value }).catch((err: unknown) => {
       console.error("Failed to set OpenAI key:", err);
     });
@@ -110,12 +136,14 @@ export const ApiKeysTab = () => {
           description="Free speech-to-text via Whisper (groq.com)"
           value={groqKey}
           onChange={handleGroqKeyChange}
+          provider="groq"
         />
         <ApiKeyField
           label="Soniox API Key"
           description="Paid real-time streaming transcription (soniox.com)"
           value={sonioxKey}
           onChange={handleSonioxKeyChange}
+          provider="soniox"
         />
       </section>
 
@@ -126,12 +154,14 @@ export const ApiKeysTab = () => {
           description="Free transcript polishing via Llama 3.3 (groq.com)"
           value={llmGroqKey}
           onChange={handleLlmGroqKeyChange}
+          provider="llm_groq"
         />
         <ApiKeyField
           label="OpenAI Key"
           description="Paid transcript polishing via GPT-4o mini (openai.com)"
           value={llmOpenaiKey}
           onChange={handleLlmOpenaiKeyChange}
+          provider="llm_openai"
         />
       </section>
     </div>
