@@ -7,11 +7,12 @@ interface RecordingCardProps {
   timer: string;
   onStop: () => void;
   showStopHint: boolean;
+  polishing: boolean;
 }
 
 const BAR_COUNT = 40;
 
-export const RecordingCard = ({ transcript, timer, onStop, showStopHint }: RecordingCardProps) => {
+export const RecordingCard = ({ transcript, timer, onStop, showStopHint, polishing }: RecordingCardProps) => {
   const onDragStart = useDrag();
 
   const bars = useMemo(
@@ -72,13 +73,19 @@ export const RecordingCard = ({ transcript, timer, onStop, showStopHint }: Recor
           <span className="lang-pill__dot" />
           Hindi + English
         </span>
-        <button className="recording-card__stop-btn" onClick={onStop}>
-          Stop
-        </button>
-        {showStopHint && (
-          <span className="stop-hint">
-            ⌥Space to stop
-          </span>
+        {polishing ? (
+          <span className="recording-card__polishing">Polishing...</span>
+        ) : (
+          <>
+            <button className="recording-card__stop-btn" onClick={onStop}>
+              Stop
+            </button>
+            {showStopHint && (
+              <span className="stop-hint">
+                ⌥Space to stop
+              </span>
+            )}
+          </>
         )}
       </div>
     </div>
