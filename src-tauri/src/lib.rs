@@ -2,6 +2,7 @@ use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::Manager;
 
+mod asr;
 mod audio;
 
 struct TrayState {
