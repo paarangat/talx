@@ -4,6 +4,7 @@ import { IdlePill } from "./components/IdlePill";
 import { RecordingCard } from "./components/RecordingCard";
 import { ResultCard } from "./components/ResultCard";
 import { useFirstUse } from "./hooks/useFirstUse";
+import { sessionStore } from "./stores/sessionStore";
 
 type WidgetState = "idle" | "recording" | "result";
 
@@ -109,8 +110,21 @@ export const App = () => {
     isRecordingRef.current = false;
     clearTimers();
     markStopUsed();
+
+    const durationSeconds = secondsRef.current;
+    const currentTranscript = transcript;
+    const wordCount = currentTranscript.split(/\s+/).filter(Boolean).length;
+
+    sessionStore.addTranscription({
+      timestamp: Date.now(),
+      originalText: currentTranscript,
+      polishedText: currentTranscript,
+      wordCount,
+      durationSeconds,
+    });
+
     setState("result");
-  }, [clearTimers, markStopUsed]);
+  }, [clearTimers, markStopUsed, transcript]);
 
   const handleDismiss = useCallback(() => {
     setState("idle");
