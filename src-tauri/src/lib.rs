@@ -320,6 +320,102 @@ fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(
 }
 
 #[tauri::command]
+async fn test_api_key(provider: String, key: String) -> Result<(), String> {
+    if key.is_empty() {
+        return Err("API key is empty".to_string());
+    }
+
+    let client = reqwest::Client::new();
+
+    match provider.as_str() {
+        "groq" | "llm_groq" => {
+            let response = client
+                .get("https://api.groq.com/openai/v1/models")
+                .header("Authorization", format!("Bearer {key}"))
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+                .map_err(|e| format!("Connection failed: {e}"))?;
+
+            if !response.status().is_success() {
+                return Err(format!("Invalid key ({})", response.status()));
+            }
+        }
+        "soniox" => {
+            use tokio_tungstenite::tungstenite::Message;
+            use futures_util::{SinkExt, StreamExt};
+
+            let (ws_stream, _) = tokio_tungstenite::connect_async(
+                "wss://api.soniox.com/transcribe-websocket",
+            )
+            .await
+            .map_err(|e| format!("Connection failed: {e}"))?;
+
+            let (mut ws_write, mut ws_read) = ws_stream.split();
+
+            let config = serde_json::json!({
+                "api_key": key,
+                "sample_rate_hertz": 16000,
+                "audio_format": "pcm_s16le",
+                "model": "soniox-v2",
+                "include_nonfinal": false
+            });
+
+            ws_write
+                .send(Message::Text(config.to_string().into()))
+                .await
+                .map_err(|e| format!("Failed to send config: {e}"))?;
+
+            // Read one response to check for auth errors
+            let response = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                ws_read.next(),
+            )
+            .await
+            .map_err(|_| "Connection timed out".to_string())?;
+
+            match response {
+                Some(Ok(Message::Text(text))) => {
+                    let text_str: &str = &text;
+                    if text_str.contains("error") || text_str.contains("unauthorized") || text_str.contains("invalid") {
+                        return Err(format!("Invalid key: {text_str}"));
+                    }
+                }
+                Some(Ok(Message::Close(frame))) => {
+                    let reason = frame.map(|f| f.reason.to_string()).unwrap_or_default();
+                    return Err(format!("Connection rejected: {reason}"));
+                }
+                Some(Err(e)) => {
+                    return Err(format!("WebSocket error: {e}"));
+                }
+                None => {
+                    return Err("Connection closed unexpectedly".to_string());
+                }
+                _ => {}
+            }
+
+            let _ = ws_write.close().await;
+        }
+        "llm_openai" => {
+            let response = client
+                .get("https://api.openai.com/v1/models")
+                .header("Authorization", format!("Bearer {key}"))
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+                .map_err(|e| format!("Connection failed: {e}"))?;
+
+            if !response.status().is_success() {
+                return Err(format!("Invalid key ({})", response.status()));
+            }
+        }
+        _ => return Err(format!("Unknown provider: {provider}")),
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn dismiss_result(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|e| e.to_string())?;
@@ -564,6 +660,7 @@ pub fn run() {
             set_asr_provider,
             set_llm_provider,
             set_api_key,
+            test_api_key,
             dismiss_result,
             polish_transcript
         ])
