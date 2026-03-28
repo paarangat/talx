@@ -5,9 +5,38 @@ use tauri::Manager;
 mod asr;
 mod audio;
 
+use tokio::sync::mpsc;
+
 struct TrayState {
     status_item: tauri::menu::MenuItem<tauri::Wry>,
     words_item: tauri::menu::MenuItem<tauri::Wry>,
+}
+
+enum RecordingStatus {
+    Idle,
+    Recording,
+    Transcribing,
+}
+
+/// Wrapper to allow AudioCapture (which contains cpal::Stream, a !Send type)
+/// to be stored in a Send+Sync state container. Safety: AudioCapture is only
+/// accessed while the Mutex is held, ensuring single-threaded access.
+struct SendableCapture(Option<audio::AudioCapture>);
+
+// SAFETY: AudioCapture is only accessed behind a Mutex, guaranteeing
+// exclusive access. The cpal::Stream inside is never moved across threads
+// while active — it is created and dropped on the same async runtime thread.
+unsafe impl Send for SendableCapture {}
+unsafe impl Sync for SendableCapture {}
+
+struct AppState {
+    recording_status: RecordingStatus,
+    audio_capture: SendableCapture,
+    soniox_session: Option<asr::soniox::SonioxSession>,
+    asr_provider: asr::AsrProvider,
+    audio_buffer: Option<std::sync::Arc<Mutex<Vec<i16>>>>,
+    groq_api_key: String,
+    soniox_api_key: String,
 }
 
 #[tauri::command]
@@ -86,6 +115,190 @@ fn update_tray_words(app: tauri::AppHandle, count: u32) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
+    let provider;
+    let soniox_key;
+
+    // Check state and start audio capture
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+        if !matches!(app_state.recording_status, RecordingStatus::Idle) {
+            return Err("Already recording".to_string());
+        }
+
+        provider = app_state.asr_provider.clone();
+        soniox_key = app_state.soniox_api_key.clone();
+
+        // Validate API key before starting
+        match provider {
+            asr::AsrProvider::Groq => {
+                if app_state.groq_api_key.is_empty() {
+                    return Err("Groq API key not configured. Set it in Settings > API Keys.".to_string());
+                }
+            }
+            asr::AsrProvider::Soniox => {
+                if soniox_key.is_empty() {
+                    return Err("Soniox API key not configured. Set it in Settings > API Keys.".to_string());
+                }
+            }
+        }
+
+        let mut capture = audio::AudioCapture::new()?;
+        let buffer = capture.start()?;
+        app_state.audio_buffer = Some(buffer);
+        app_state.audio_capture = SendableCapture(Some(capture));
+        app_state.recording_status = RecordingStatus::Recording;
+    }
+
+    // Start Soniox streaming if that's the provider
+    if let asr::AsrProvider::Soniox = provider {
+        let (buffer, sample_rate) = {
+            let state = app.state::<Mutex<AppState>>();
+            let app_state = state.lock().map_err(|e| e.to_string())?;
+            let buf = app_state.audio_buffer.clone().ok_or("No audio buffer")?;
+            let sr = app_state.audio_capture.0.as_ref().map(|c| c.sample_rate()).unwrap_or(16000);
+            (buf, sr)
+        };
+
+        let (partial_tx, mut partial_rx) = mpsc::unbounded_channel::<String>();
+
+        let session = asr::soniox::SonioxSession::start(
+            soniox_key,
+            sample_rate,
+            buffer,
+            partial_tx,
+        )
+        .await?;
+
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut app_state = state.lock().map_err(|e| e.to_string())?;
+            app_state.soniox_session = Some(session);
+        }
+
+        // Forward partial transcripts to frontend
+        let app_handle = app.clone();
+        tokio::spawn(async move {
+            while let Some(partial) = partial_rx.recv().await {
+                let _ = app_handle.emit("transcription-partial", &partial);
+            }
+        });
+    }
+
+    app.emit("recording-started", ()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
+    let provider;
+    let samples;
+    let sample_rate;
+    let groq_key;
+
+    // Stop audio capture
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+        if !matches!(app_state.recording_status, RecordingStatus::Recording) {
+            return Err("Not recording".to_string());
+        }
+
+        app_state.recording_status = RecordingStatus::Transcribing;
+        provider = app_state.asr_provider.clone();
+        groq_key = app_state.groq_api_key.clone();
+
+        let (s, sr) = app_state
+            .audio_capture
+            .0
+            .as_mut()
+            .ok_or("No audio capture")?
+            .stop();
+        samples = s;
+        sample_rate = sr;
+        app_state.audio_capture = SendableCapture(None);
+        app_state.audio_buffer = None;
+    }
+
+    let app_handle = app.clone();
+
+    match provider {
+        asr::AsrProvider::Groq => {
+            tokio::spawn(async move {
+                match asr::groq::transcribe(&samples, sample_rate, &groq_key).await {
+                    Ok(text) => {
+                        let _ = app_handle.emit("transcription-result", &text);
+                    }
+                    Err(e) => {
+                        let _ = app_handle.emit("recording-error", &e);
+                    }
+                }
+                let state = app_handle.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    app_state.recording_status = RecordingStatus::Idle;
+                };
+            });
+        }
+        asr::AsrProvider::Soniox => {
+            let mut session = {
+                let state = app.state::<Mutex<AppState>>();
+                let mut app_state = state.lock().map_err(|e| e.to_string())?;
+                app_state.soniox_session.take()
+            };
+
+            tokio::spawn(async move {
+                if let Some(ref mut session) = session {
+                    match session.stop().await {
+                        Ok(text) => {
+                            let _ = app_handle.emit("transcription-result", &text);
+                        }
+                        Err(e) => {
+                            let _ = app_handle.emit("recording-error", &e);
+                        }
+                    }
+                }
+                let state = app_handle.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    app_state.recording_status = RecordingStatus::Idle;
+                };
+            });
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn set_asr_provider(app: tauri::AppHandle, provider: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+    app_state.asr_provider = match provider.as_str() {
+        "soniox" => asr::AsrProvider::Soniox,
+        _ => asr::AsrProvider::Groq,
+    };
+
+    Ok(())
+}
+
+#[tauri::command]
+fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+    match provider.as_str() {
+        "groq" => app_state.groq_api_key = key,
+        "soniox" => app_state.soniox_api_key = key,
+        _ => return Err(format!("Unknown provider: {provider}")),
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -127,6 +340,16 @@ pub fn run() {
             app.manage(Mutex::new(TrayState {
                 status_item: status_item.clone(),
                 words_item: words_item.clone(),
+            }));
+
+            app.manage(Mutex::new(AppState {
+                recording_status: RecordingStatus::Idle,
+                audio_capture: SendableCapture(None),
+                soniox_session: None,
+                asr_provider: asr::AsrProvider::Groq,
+                audio_buffer: None,
+                groq_api_key: String::new(),
+                soniox_api_key: String::new(),
             }));
 
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
@@ -200,7 +423,11 @@ pub fn run() {
             resize_window,
             open_dashboard_window,
             update_tray_status,
-            update_tray_words
+            update_tray_words,
+            start_recording,
+            stop_recording,
+            set_asr_provider,
+            set_api_key
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
