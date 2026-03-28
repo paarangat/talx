@@ -1,8 +1,18 @@
-import { useTranscriptions } from "../../hooks/useSessionStore";
-import type { TranscriptionEntry } from "../../stores/sessionStore";
+import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
-const formatTimestamp = (ts: number): string => {
-  const date = new Date(ts);
+interface TranscriptionRow {
+  id: string;
+  created_at: number;
+  original_text: string;
+  polished_text: string;
+  word_count: number;
+  duration_secs: number;
+}
+
+const formatTimestamp = (ms: number): string => {
+  const date = new Date(ms);
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
@@ -17,26 +27,48 @@ const truncate = (text: string, maxLength: number): string => {
   return text.slice(0, maxLength).trimEnd() + "\u2026";
 };
 
-const TranscriptionRow = ({ entry }: { entry: TranscriptionEntry }) => {
+const TranscriptionItem = ({ entry }: { entry: TranscriptionRow }) => {
   return (
     <div className="transcription-row">
       <div className="transcription-row__header">
         <span className="transcription-row__time">
-          {formatTimestamp(entry.timestamp)}
+          {formatTimestamp(entry.created_at)}
         </span>
         <span className="transcription-row__meta">
-          {entry.wordCount} words {"\u00b7"} {formatDuration(entry.durationSeconds)}
+          {entry.word_count} words {"\u00b7"} {formatDuration(entry.duration_secs)}
         </span>
       </div>
       <p className="transcription-row__text">
-        {truncate(entry.polishedText, 120)}
+        {truncate(entry.polished_text, 120)}
       </p>
     </div>
   );
 };
 
 export const RecentTranscriptions = () => {
-  const transcriptions = useTranscriptions();
+  const [transcriptions, setTranscriptions] = useState<TranscriptionRow[]>([]);
+
+  const fetchTranscriptions = useCallback(() => {
+    invoke<TranscriptionRow[]>("get_transcriptions", { limit: 20, offset: 0 })
+      .then(setTranscriptions)
+      .catch((err: unknown) => {
+        console.error("Failed to load transcriptions:", err);
+      });
+  }, []);
+
+  useEffect(() => {
+    fetchTranscriptions();
+  }, [fetchTranscriptions]);
+
+  // Re-fetch when the main window saves a new transcription
+  useEffect(() => {
+    const unlisten = listen("transcription-saved", () => {
+      fetchTranscriptions();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [fetchTranscriptions]);
 
   if (transcriptions.length === 0) {
     return (
@@ -54,7 +86,7 @@ export const RecentTranscriptions = () => {
       <h3 className="home-page__section-title">Recent</h3>
       <div className="recent-transcriptions__list">
         {transcriptions.map((entry) => (
-          <TranscriptionRow key={entry.id} entry={entry} />
+          <TranscriptionItem key={entry.id} entry={entry} />
         ))}
       </div>
     </div>
