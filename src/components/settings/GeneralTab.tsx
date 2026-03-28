@@ -5,6 +5,7 @@ const ASR_PROVIDER_KEY = "talx:asr-provider";
 const LLM_PROVIDER_KEY = "talx:llm-provider";
 const AUTO_PASTE_KEY = "talx:auto-paste";
 const LANGUAGE_KEY = "talx:language";
+const HOTKEY_KEY = "talx:hotkey";
 
 export const GeneralTab = () => {
   const [autoPaste, setAutoPaste] = useState(() => {
@@ -14,6 +15,10 @@ export const GeneralTab = () => {
   const [language, setLanguage] = useState(() => {
     return localStorage.getItem(LANGUAGE_KEY) ?? "hi+en";
   });
+  const [hotkey, setHotkey] = useState(() => {
+    return localStorage.getItem(HOTKEY_KEY) ?? "alt+space";
+  });
+  const [recordingHotkey, setRecordingHotkey] = useState(false);
   const [asrProvider, setAsrProvider] = useState(() => {
     return localStorage.getItem(ASR_PROVIDER_KEY) ?? "groq";
   });
@@ -44,6 +49,63 @@ export const GeneralTab = () => {
     localStorage.setItem(LLM_PROVIDER_KEY, value);
   };
 
+  const formatHotkeyDisplay = (hk: string): string => {
+    return hk
+      .split("+")
+      .map((part) => {
+        switch (part) {
+          case "alt": return "⌥";
+          case "ctrl": return "⌃";
+          case "shift": return "⇧";
+          case "cmd": case "meta": return "⌘";
+          case "space": return "Space";
+          default: return part.charAt(0).toUpperCase() + part.slice(1);
+        }
+      })
+      .join(" ");
+  };
+
+  useEffect(() => {
+    if (!recordingHotkey) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (e.key === "Escape") {
+        setRecordingHotkey(false);
+        return;
+      }
+
+      // Ignore lone modifier presses
+      if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
+
+      const parts: string[] = [];
+      if (e.ctrlKey) parts.push("ctrl");
+      if (e.altKey) parts.push("alt");
+      if (e.shiftKey) parts.push("shift");
+      if (e.metaKey) parts.push("cmd");
+
+      // Require at least one modifier
+      if (parts.length === 0) return;
+
+      const key = e.key === " " ? "space" : e.key.toLowerCase();
+      parts.push(key);
+
+      const newHotkey = parts.join("+");
+      setHotkey(newHotkey);
+      localStorage.setItem(HOTKEY_KEY, newHotkey);
+      setRecordingHotkey(false);
+
+      invoke("set_hotkey", { hotkey: newHotkey }).catch((err: unknown) => {
+        console.error("Failed to set hotkey:", err);
+      });
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [recordingHotkey]);
+
   return (
     <div className="settings-tab">
       <h2 className="settings-tab__title">General</h2>
@@ -56,8 +118,15 @@ export const GeneralTab = () => {
             <span className="settings-tab__description">Press to start/stop recording</span>
           </div>
           <div className="settings-tab__row-action">
-            <span className="settings-tab__hotkey-badge">⌥ Space</span>
-            <button className="settings-tab__btn-secondary">Change</button>
+            <span className="settings-tab__hotkey-badge">
+              {recordingHotkey ? "Press keys..." : formatHotkeyDisplay(hotkey)}
+            </span>
+            <button
+              className="settings-tab__btn-secondary"
+              onClick={() => setRecordingHotkey(!recordingHotkey)}
+            >
+              {recordingHotkey ? "Cancel" : "Change"}
+            </button>
           </div>
         </div>
       </section>
