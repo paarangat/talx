@@ -11,8 +11,8 @@ export const IdlePill = ({ onActivate, showHint }: IdlePillProps) => {
 
   const handleSettings = (e: React.MouseEvent) => {
     e.stopPropagation();
-    invoke("open_settings_window").catch((err: unknown) => {
-      console.error("Failed to open settings window:", err);
+    invoke("open_dashboard_window", { section: "settings" }).catch((err: unknown) => {
+      console.error("Failed to open dashboard window:", err);
     });
   };
 
