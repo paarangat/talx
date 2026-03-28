@@ -310,6 +310,12 @@ fn set_llm_provider(app: tauri::AppHandle, provider: String) -> Result<(), Strin
 
 #[tauri::command]
 fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(), String> {
+    // Validate provider before touching the keychain
+    match provider.as_str() {
+        "groq" | "soniox" | "llm_groq" | "llm_openai" => {}
+        _ => return Err(format!("Unknown provider: {provider}")),
+    }
+
     keychain::set_key(&provider, &key)?;
 
     let state = app.state::<Mutex<AppState>>();
@@ -320,7 +326,7 @@ fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(
         "soniox" => app_state.soniox_api_key = key,
         "llm_groq" => app_state.llm_groq_api_key = key,
         "llm_openai" => app_state.llm_openai_api_key = key,
-        _ => return Err(format!("Unknown provider: {provider}")),
+        _ => unreachable!(),
     }
 
     Ok(())

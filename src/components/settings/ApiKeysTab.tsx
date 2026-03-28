@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 interface ApiKeyFieldProps {
@@ -109,12 +109,20 @@ export const ApiKeysTab = () => {
     loadKeys();
   }, []);
 
-  const handleKeyChange = (provider: string, setter: (v: string) => void) => (value: string) => {
-    setter(value);
-    invoke("set_api_key", { provider, key: value }).catch((err: unknown) => {
-      console.error(`Failed to set ${provider} key:`, err);
-    });
-  };
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleKeyChange = useCallback(
+    (provider: string, setter: (v: string) => void) => (value: string) => {
+      setter(value);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        invoke("set_api_key", { provider, key: value }).catch((err: unknown) => {
+          console.error(`Failed to set ${provider} key:`, err);
+        });
+      }, 400);
+    },
+    [],
+  );
 
   return (
     <div className="settings-tab">
