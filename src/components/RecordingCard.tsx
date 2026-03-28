@@ -56,13 +56,15 @@ export const RecordingCard = ({ transcript, timer, onStop, showStopHint }: Recor
         ))}
       </div>
 
-      {/* Transcript */}
-      <div className="recording-card__transcript">
-        <p className="recording-card__transcript-text">
-          {transcript}
-          <span className="cursor-blink" />
-        </p>
-      </div>
+      {/* Transcript — only shown when streaming (Soniox) */}
+      {transcript && (
+        <div className="recording-card__transcript">
+          <p className="recording-card__transcript-text">
+            {transcript}
+            <span className="cursor-blink" />
+          </p>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="recording-card__footer">
