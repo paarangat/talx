@@ -68,7 +68,8 @@ const ApiKeyField = ({ label, description, value, onChange }: ApiKeyFieldProps) 
 export const ApiKeysTab = () => {
   const [groqKey, setGroqKey] = useState("");
   const [sonioxKey, setSonioxKey] = useState("");
-  const [llmKey, setLlmKey] = useState("");
+  const [llmGroqKey, setLlmGroqKey] = useState("");
+  const [llmOpenaiKey, setLlmOpenaiKey] = useState("");
 
   const handleGroqKeyChange = (value: string) => {
     setGroqKey(value);
@@ -84,8 +85,18 @@ export const ApiKeysTab = () => {
     });
   };
 
-  const handleLlmKeyChange = (value: string) => {
-    setLlmKey(value);
+  const handleLlmGroqKeyChange = (value: string) => {
+    setLlmGroqKey(value);
+    invoke("set_api_key", { provider: "llm_groq", key: value }).catch((err: unknown) => {
+      console.error("Failed to set Groq LLM key:", err);
+    });
+  };
+
+  const handleLlmOpenaiKeyChange = (value: string) => {
+    setLlmOpenaiKey(value);
+    invoke("set_api_key", { provider: "llm_openai", key: value }).catch((err: unknown) => {
+      console.error("Failed to set OpenAI key:", err);
+    });
   };
 
   return (
@@ -109,12 +120,18 @@ export const ApiKeysTab = () => {
       </section>
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">LLM</h3>
+        <h3 className="settings-tab__section-header">Polishing</h3>
         <ApiKeyField
-          label="OpenAI / Groq API Key"
-          description="Used for transcript polishing"
-          value={llmKey}
-          onChange={handleLlmKeyChange}
+          label="Groq LLM Key"
+          description="Free transcript polishing via Llama 3.3 (groq.com)"
+          value={llmGroqKey}
+          onChange={handleLlmGroqKeyChange}
+        />
+        <ApiKeyField
+          label="OpenAI Key"
+          description="Paid transcript polishing via GPT-4o mini (openai.com)"
+          value={llmOpenaiKey}
+          onChange={handleLlmOpenaiKeyChange}
         />
       </section>
     </div>
