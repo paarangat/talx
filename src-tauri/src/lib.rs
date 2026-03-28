@@ -374,27 +374,31 @@ async fn test_api_key(provider: String, key: String) -> Result<(), String> {
             .await
             .map_err(|_| "Connection timed out".to_string())?;
 
-            match response {
+            let result = match response {
                 Some(Ok(Message::Text(text))) => {
                     let text_str: &str = &text;
-                    if text_str.contains("error") || text_str.contains("unauthorized") || text_str.contains("invalid") {
-                        return Err(format!("Invalid key: {text_str}"));
+                    let lower = text_str.to_lowercase();
+                    if lower.contains("error") || lower.contains("unauthorized") || lower.contains("invalid") {
+                        Err(format!("Invalid key: {text_str}"))
+                    } else {
+                        Ok(())
                     }
                 }
                 Some(Ok(Message::Close(frame))) => {
                     let reason = frame.map(|f| f.reason.to_string()).unwrap_or_default();
-                    return Err(format!("Connection rejected: {reason}"));
+                    Err(format!("Connection rejected: {reason}"))
                 }
                 Some(Err(e)) => {
-                    return Err(format!("WebSocket error: {e}"));
+                    Err(format!("WebSocket error: {e}"))
                 }
                 None => {
-                    return Err("Connection closed unexpectedly".to_string());
+                    Err("Connection closed unexpectedly".to_string())
                 }
-                _ => {}
-            }
+                _ => Ok(()),
+            };
 
             let _ = ws_write.close().await;
+            result?;
         }
         "llm_openai" => {
             let response = client
