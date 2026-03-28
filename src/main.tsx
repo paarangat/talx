@@ -10,11 +10,12 @@ import "./styles/dashboard.css";
 
 const params = new URLSearchParams(window.location.search);
 const windowType = params.get("window");
-const initialSection = params.get("section") || "home";
+const rawSection = params.get("section") || "home";
+const initialSection: "home" | "settings" = rawSection === "settings" ? "settings" : "home";
 
 const rootComponent =
   windowType === "dashboard" ? (
-    <Dashboard initialSection={initialSection as "home" | "settings"} />
+    <Dashboard initialSection={initialSection} />
   ) : (
     <App />
   );

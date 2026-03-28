@@ -48,13 +48,13 @@ export const sessionStore = {
 
   addTranscription(entry: Omit<TranscriptionEntry, "id">): void {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    state.transcriptions.unshift({ ...entry, id });
-    if (state.transcriptions.length > 20) {
-      state.transcriptions.pop();
-    }
-    state.stats.wordsToday += entry.wordCount;
-    state.stats.recordingSecondsToday += entry.durationSeconds;
-    state.stats.sessionsToday += 1;
+    state.transcriptions = [{ ...entry, id }, ...state.transcriptions.slice(0, 19)];
+    state.stats = {
+      ...state.stats,
+      wordsToday: state.stats.wordsToday + entry.wordCount,
+      recordingSecondsToday: state.stats.recordingSecondsToday + entry.durationSeconds,
+      sessionsToday: state.stats.sessionsToday + 1,
+    };
     notify();
   },
 
