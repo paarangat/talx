@@ -40,10 +40,12 @@ struct AppState {
     audio_capture: SendableCapture,
     soniox_session: Option<asr::soniox::SonioxSession>,
     asr_provider: asr::AsrProvider,
+    asr_model: String,
     audio_buffer: Option<std::sync::Arc<Mutex<Vec<i16>>>>,
     groq_api_key: String,
     soniox_api_key: String,
     llm_provider: llm::LlmProvider,
+    llm_model: String,
     llm_groq_api_key: String,
     llm_openai_api_key: String,
     current_hotkey: String,
@@ -192,6 +194,7 @@ fn update_tray_words(app: tauri::AppHandle, count: u32) -> Result<(), String> {
 async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
     let provider;
     let soniox_key;
+    let asr_model_val;
 
     // Check state and start audio capture
     {
@@ -204,6 +207,7 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
 
         provider = app_state.asr_provider.clone();
         soniox_key = app_state.soniox_api_key.clone();
+        asr_model_val = app_state.asr_model.clone();
 
         // Validate API key before starting
         match provider {
@@ -243,6 +247,7 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
             sample_rate,
             buffer,
             partial_tx,
+            asr_model_val.clone(),
         )
         .await?;
 
@@ -271,6 +276,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     let samples;
     let sample_rate;
     let groq_key;
+    let asr_model_val;
 
     // Stop audio capture
     {
@@ -284,6 +290,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
         app_state.recording_status = RecordingStatus::Transcribing;
         provider = app_state.asr_provider.clone();
         groq_key = app_state.groq_api_key.clone();
+        asr_model_val = app_state.asr_model.clone();
 
         let (s, sr) = app_state
             .audio_capture
@@ -302,7 +309,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     match provider {
         asr::AsrProvider::Groq => {
             tokio::spawn(async move {
-                match asr::groq::transcribe(&samples, sample_rate, &groq_key).await {
+                match asr::groq::transcribe(&samples, sample_rate, &groq_key, &asr_model_val).await {
                     Ok(text) => {
                         let _ = app_handle.emit("transcription-result", &text);
                     }
@@ -369,6 +376,123 @@ fn set_llm_provider(app: tauri::AppHandle, provider: String) -> Result<(), Strin
     };
 
     Ok(())
+}
+
+#[tauri::command]
+fn set_asr_model(app: tauri::AppHandle, model: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    app_state.asr_model = model;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_llm_model(app: tauri::AppHandle, model: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    app_state.llm_model = model;
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct ModelInfo {
+    id: String,
+}
+
+#[tauri::command]
+async fn fetch_models(app: tauri::AppHandle, provider: String) -> Result<Vec<ModelInfo>, String> {
+    let api_key = {
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|e| e.to_string())?;
+        match provider.as_str() {
+            "groq" => app_state.groq_api_key.clone(),
+            "soniox" => app_state.soniox_api_key.clone(),
+            "llm_groq" => app_state.llm_groq_api_key.clone(),
+            "llm_openai" => app_state.llm_openai_api_key.clone(),
+            _ => return Err(format!("Unknown provider: {provider}")),
+        }
+    };
+
+    if api_key.is_empty() {
+        return Err("API key not configured".to_string());
+    }
+
+    let client = reqwest::Client::new();
+
+    match provider.as_str() {
+        "groq" | "llm_groq" => {
+            let response = client
+                .get("https://api.groq.com/openai/v1/models")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to fetch models: {e}"))?;
+
+            if !response.status().is_success() {
+                return Err(format!("API error ({})", response.status()));
+            }
+
+            let body: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| format!("Parse error: {e}"))?;
+
+            let models: Vec<ModelInfo> = body["data"]
+                .as_array()
+                .unwrap_or(&vec![])
+                .iter()
+                .filter_map(|m| {
+                    let id = m["id"].as_str()?.to_string();
+                    if provider == "groq" {
+                        if id.contains("whisper") { Some(ModelInfo { id }) } else { None }
+                    } else {
+                        if id.contains("whisper") { None } else { Some(ModelInfo { id }) }
+                    }
+                })
+                .collect();
+
+            Ok(models)
+        }
+        "soniox" => {
+            Ok(vec![])
+        }
+        "llm_openai" => {
+            let response = client
+                .get("https://api.openai.com/v1/models")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to fetch models: {e}"))?;
+
+            if !response.status().is_success() {
+                return Err(format!("API error ({})", response.status()));
+            }
+
+            let body: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| format!("Parse error: {e}"))?;
+
+            let models: Vec<ModelInfo> = body["data"]
+                .as_array()
+                .unwrap_or(&vec![])
+                .iter()
+                .filter_map(|m| {
+                    let id = m["id"].as_str()?.to_string();
+                    if id.starts_with("gpt-") || id.starts_with("o") || id.starts_with("chatgpt-") {
+                        Some(ModelInfo { id })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            Ok(models)
+        }
+        _ => Err(format!("Unknown provider: {provider}")),
+    }
 }
 
 #[tauri::command]
@@ -587,7 +711,7 @@ fn dismiss_result(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn polish_transcript(app: tauri::AppHandle, text: String) -> Result<llm::PolishResult, String> {
-    let (provider, api_key) = {
+    let (provider, api_key, llm_model) = {
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|e| e.to_string())?;
 
@@ -606,10 +730,10 @@ async fn polish_transcript(app: tauri::AppHandle, text: String) -> Result<llm::P
             }
         };
 
-        (app_state.llm_provider.clone(), key)
+        (app_state.llm_provider.clone(), key, app_state.llm_model.clone())
     };
 
-    llm::polish(&text, &provider, &api_key).await
+    llm::polish(&text, &provider, &api_key, &llm_model).await
 }
 
 #[tauri::command]
@@ -793,10 +917,12 @@ pub fn run() {
                 audio_capture: SendableCapture(None),
                 soniox_session: None,
                 asr_provider: asr::AsrProvider::Groq,
+                asr_model: "whisper-large-v3-turbo".to_string(),
                 audio_buffer: None,
                 groq_api_key: String::new(),
                 soniox_api_key: String::new(),
                 llm_provider: llm::LlmProvider::default(),
+                llm_model: "llama-3.3-70b-versatile".to_string(),
                 llm_groq_api_key: String::new(),
                 llm_openai_api_key: String::new(),
                 current_hotkey: "alt+space".to_string(),
@@ -953,6 +1079,9 @@ pub fn run() {
             stop_recording,
             set_asr_provider,
             set_llm_provider,
+            set_asr_model,
+            set_llm_model,
+            fetch_models,
             set_api_key,
             get_api_key,
             delete_api_key,
