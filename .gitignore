@@ -24,3 +24,8 @@ Thumbs.db
 # Logs
 *.log
 src-tauri/gen/
+
+# Private docs
+CLAUDE.md
+SPEC.md
+docs/
