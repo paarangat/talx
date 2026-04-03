@@ -32,7 +32,7 @@ fn encode_wav(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, String> {
 }
 
 /// Send audio to Groq Whisper API and return the transcript text.
-pub async fn transcribe(samples: &[i16], sample_rate: u32, api_key: &str) -> Result<String, String> {
+pub async fn transcribe(samples: &[i16], sample_rate: u32, api_key: &str, model: &str) -> Result<String, String> {
     let wav_bytes = encode_wav(samples, sample_rate)?;
 
     let part = reqwest::multipart::Part::bytes(wav_bytes)
@@ -42,7 +42,7 @@ pub async fn transcribe(samples: &[i16], sample_rate: u32, api_key: &str) -> Res
 
     let form = reqwest::multipart::Form::new()
         .part("file", part)
-        .text("model", "whisper-large-v3-turbo");
+        .text("model", model.to_string());
 
     let client = reqwest::Client::new();
     let response = client

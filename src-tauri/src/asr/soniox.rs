@@ -40,6 +40,7 @@ impl SonioxSession {
         sample_rate: u32,
         audio_buffer: Arc<Mutex<Vec<i16>>>,
         partial_tx: mpsc::UnboundedSender<String>,
+        model: String,
     ) -> Result<Self, String> {
         let url = "wss://api.soniox.com/transcribe-websocket";
 
@@ -54,7 +55,7 @@ impl SonioxSession {
             api_key,
             sample_rate_hertz: sample_rate,
             audio_format: "pcm_s16le".to_string(),
-            model: "soniox-v2".to_string(),
+            model,
             include_nonfinal: true,
         };
         let config_json = serde_json::to_string(&config)
