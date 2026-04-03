@@ -413,6 +413,11 @@ async fn fetch_models(app: tauri::AppHandle, provider: String) -> Result<Vec<Mod
         }
     };
 
+    // Soniox has no public model list API — return empty without requiring a key
+    if provider == "soniox" {
+        return Ok(vec![]);
+    }
+
     if api_key.is_empty() {
         return Err("API key not configured".to_string());
     }
@@ -453,9 +458,6 @@ async fn fetch_models(app: tauri::AppHandle, provider: String) -> Result<Vec<Mod
                 .collect();
 
             Ok(models)
-        }
-        "soniox" => {
-            Ok(vec![])
         }
         "llm_openai" => {
             let response = client
