@@ -30,9 +30,9 @@ pub const SYSTEM_PROMPT: &str = "You are a transcript polisher. Clean up the fol
 - Do NOT add commentary, explanations, or formatting\n\
 - Return ONLY the polished text, nothing else";
 
-pub async fn polish(text: &str, provider: &LlmProvider, api_key: &str) -> Result<PolishResult, String> {
+pub async fn polish(text: &str, provider: &LlmProvider, api_key: &str, model: &str) -> Result<PolishResult, String> {
     match provider {
-        LlmProvider::Groq => groq::polish(text, api_key).await,
-        LlmProvider::OpenAi => openai::polish(text, api_key).await,
+        LlmProvider::Groq => groq::polish(text, api_key, model).await,
+        LlmProvider::OpenAi => openai::polish(text, api_key, model).await,
     }
 }

@@ -31,11 +31,11 @@ struct ChatResponse {
     model: String,
 }
 
-pub async fn polish(text: &str, api_key: &str) -> Result<PolishResult, String> {
+pub async fn polish(text: &str, api_key: &str, model: &str) -> Result<PolishResult, String> {
     let start = Instant::now();
 
     let request = ChatRequest {
-        model: "gpt-4o-mini".to_string(),
+        model: model.to_string(),
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
