@@ -6,7 +6,6 @@ use tauri::Manager;
 mod asr;
 mod audio;
 mod db;
-mod keychain;
 mod llm;
 
 use tokio::sync::mpsc;
@@ -16,10 +15,12 @@ struct TrayState {
     words_item: tauri::menu::MenuItem<tauri::Wry>,
 }
 
+#[allow(dead_code)]
 enum RecordingStatus {
     Idle,
     Recording,
     Transcribing,
+    Polishing,
     Result,
 }
 
@@ -47,6 +48,66 @@ struct AppState {
     llm_openai_api_key: String,
     current_hotkey: String,
     db_conn: Connection,
+    key_down_time: Option<std::time::Instant>,
+    hold_mode: bool,
+}
+
+#[tauri::command]
+async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+
+    app.run_on_main_thread(move || {
+        let result = (|| -> Result<(), String> {
+            use arboard::Clipboard;
+            use enigo::{Enigo, Key, Keyboard, Settings};
+
+            let mut clipboard =
+                Clipboard::new().map_err(|e| format!("Clipboard error: {e}"))?;
+            clipboard
+                .set_text(&text)
+                .map_err(|e| format!("Failed to write clipboard: {e}"))?;
+
+            // Small delay for clipboard to settle (main thread is fine — only 50ms, no UI work)
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            let mut enigo =
+                Enigo::new(&Settings::default()).map_err(|e| format!("Enigo error: {e}"))?;
+
+            #[cfg(target_os = "macos")]
+            {
+                enigo
+                    .key(Key::Meta, enigo::Direction::Press)
+                    .map_err(|e| format!("Key press error: {e}"))?;
+                enigo
+                    .key(Key::Unicode('v'), enigo::Direction::Click)
+                    .map_err(|e| format!("Key click error: {e}"))?;
+                enigo
+                    .key(Key::Meta, enigo::Direction::Release)
+                    .map_err(|e| format!("Key release error: {e}"))?;
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                enigo
+                    .key(Key::Control, enigo::Direction::Press)
+                    .map_err(|e| format!("Key press error: {e}"))?;
+                enigo
+                    .key(Key::Unicode('v'), enigo::Direction::Click)
+                    .map_err(|e| format!("Key click error: {e}"))?;
+                enigo
+                    .key(Key::Control, enigo::Direction::Release)
+                    .map_err(|e| format!("Key release error: {e}"))?;
+            }
+
+            Ok(())
+        })();
+
+        let _ = tx.send(result);
+    })
+    .map_err(|e| format!("Failed to schedule on main thread: {e}"))?;
+
+    rx.await
+        .map_err(|_| "Main thread task was dropped".to_string())?
 }
 
 #[tauri::command]
@@ -100,6 +161,8 @@ fn update_tray_status(app: tauri::AppHandle, status: String) -> Result<(), Strin
     let label = match status.as_str() {
         "idle" => "Status: Idle",
         "recording" => "Status: Recording...",
+        "polishing" => "Status: Polishing...",
+        "success" => "Status: Done",
         "result" => "Status: Ready",
         _ => "Status: Idle",
     };
@@ -310,16 +373,20 @@ fn set_llm_provider(app: tauri::AppHandle, provider: String) -> Result<(), Strin
 
 #[tauri::command]
 fn set_api_key(app: tauri::AppHandle, provider: String, key: String) -> Result<(), String> {
-    // Validate provider before touching the keychain
     match provider.as_str() {
         "groq" | "soniox" | "llm_groq" | "llm_openai" => {}
         _ => return Err(format!("Unknown provider: {provider}")),
     }
 
-    keychain::set_key(&provider, &key)?;
-
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+    let db_key = format!("api_key:{provider}");
+    if key.is_empty() {
+        db::delete_setting(&app_state.db_conn, &db_key).map_err(|e| e.to_string())?;
+    } else {
+        db::set_setting(&app_state.db_conn, &db_key, &key).map_err(|e| e.to_string())?;
+    }
 
     match provider.as_str() {
         "groq" => app_state.groq_api_key = key,
@@ -354,10 +421,11 @@ fn get_api_key(app: tauri::AppHandle, provider: String) -> Result<Option<String>
 
 #[tauri::command]
 fn delete_api_key(app: tauri::AppHandle, provider: String) -> Result<(), String> {
-    keychain::delete_key(&provider)?;
-
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+    let db_key = format!("api_key:{provider}");
+    db::delete_setting(&app_state.db_conn, &db_key).map_err(|e| e.to_string())?;
 
     match provider.as_str() {
         "groq" => app_state.groq_api_key = String::new(),
@@ -365,28 +433,6 @@ fn delete_api_key(app: tauri::AppHandle, provider: String) -> Result<(), String>
         "llm_groq" => app_state.llm_groq_api_key = String::new(),
         "llm_openai" => app_state.llm_openai_api_key = String::new(),
         _ => return Err(format!("Unknown provider: {provider}")),
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-fn migrate_legacy_keys(app: tauri::AppHandle, keys: Vec<(String, String)>) -> Result<(), String> {
-    let state = app.state::<Mutex<AppState>>();
-    let mut app_state = state.lock().map_err(|e| e.to_string())?;
-
-    for (provider, key) in keys {
-        if key.is_empty() {
-            continue;
-        }
-        keychain::set_key(&provider, &key)?;
-        match provider.as_str() {
-            "groq" => app_state.groq_api_key = key,
-            "soniox" => app_state.soniox_api_key = key,
-            "llm_groq" => app_state.llm_groq_api_key = key,
-            "llm_openai" => app_state.llm_openai_api_key = key,
-            _ => {} // skip unknown providers silently during migration
-        }
     }
 
     Ok(())
@@ -533,7 +579,7 @@ fn get_hotkey(app: tauri::AppHandle) -> Result<String, String> {
 fn dismiss_result(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|e| e.to_string())?;
-    if matches!(app_state.recording_status, RecordingStatus::Result) {
+    if !matches!(app_state.recording_status, RecordingStatus::Recording) {
         app_state.recording_status = RecordingStatus::Idle;
     }
     Ok(())
@@ -622,43 +668,71 @@ fn register_hotkey(
     app.global_shortcut()
         .on_shortcut(shortcut, {
             move |_app, _shortcut, event| {
-                if event.state != ShortcutState::Pressed {
-                    return;
-                }
+                let state = app_handle.state::<Mutex<AppState>>();
 
-                let is_recording = {
-                    let state = app_handle.state::<Mutex<AppState>>();
-                    let result = if let Ok(app_state) = state.lock() {
-                        matches!(app_state.recording_status, RecordingStatus::Recording)
-                    } else {
-                        false
+                let (status, hold_mode) = {
+                    let Ok(app_state) = state.lock() else {
+                        return;
                     };
-                    result
+                    let s = match app_state.recording_status {
+                        RecordingStatus::Idle => 0u8,
+                        RecordingStatus::Recording => 1,
+                        _ => 2,
+                    };
+                    (s, app_state.hold_mode)
                 };
 
-                let handle = app_handle.clone();
-                if is_recording {
-                    tauri::async_runtime::spawn(async move {
-                        if let Err(e) = stop_recording(handle.clone()).await {
-                            let _ = handle.emit("recording-error", &e);
-                        }
-                    });
-                } else {
-                    let is_idle = {
-                        let state = app_handle.state::<Mutex<AppState>>();
-                        let result = if let Ok(app_state) = state.lock() {
-                            matches!(app_state.recording_status, RecordingStatus::Idle)
-                        } else {
-                            false
-                        };
-                        result
-                    };
-                    if is_idle {
-                        tauri::async_runtime::spawn(async move {
-                            if let Err(e) = start_recording(handle.clone()).await {
-                                let _ = handle.emit("recording-error", &e);
+                match event.state {
+                    ShortcutState::Pressed => {
+                        if status == 0 {
+                            // Idle → start recording, record key-down time
+                            if let Ok(mut app_state) = state.lock() {
+                                app_state.key_down_time = Some(std::time::Instant::now());
+                                app_state.hold_mode = false;
                             }
-                        });
+                            let handle = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = start_recording(handle.clone()).await {
+                                    let _ = handle.emit("recording-error", &e);
+                                }
+                            });
+                        } else if status == 1 && !hold_mode {
+                            // Toggle-started recording: short press again to stop
+                            let handle = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = stop_recording(handle.clone()).await {
+                                    let _ = handle.emit("recording-error", &e);
+                                }
+                            });
+                        }
+                    }
+                    ShortcutState::Released => {
+                        if status == 1 {
+                            // Check if this was a hold (≥400ms)
+                            let is_hold = if let Ok(mut app_state) = state.lock() {
+                                if let Some(down_time) = app_state.key_down_time {
+                                    if down_time.elapsed() >= std::time::Duration::from_millis(400) {
+                                        app_state.hold_mode = true;
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            };
+
+                            if is_hold {
+                                let handle = app_handle.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    if let Err(e) = stop_recording(handle.clone()).await {
+                                        let _ = handle.emit("recording-error", &e);
+                                    }
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -727,25 +801,73 @@ pub fn run() {
                 llm_openai_api_key: String::new(),
                 current_hotkey: "alt+space".to_string(),
                 db_conn,
+                key_down_time: None,
+                hold_mode: false,
             }));
 
-            // Load API keys from keychain (with env var fallback for dev)
+            // One-time migration: pull API keys from macOS Keychain (legacy keyring crate)
+            // into SQLite, then never run again.
+            #[cfg(target_os = "macos")]
+            {
+                let state = app.state::<Mutex<AppState>>();
+                if let Ok(app_state) = state.lock() {
+                    let migrated = db::get_setting(&app_state.db_conn, "keychain_migrated")
+                        .ok()
+                        .flatten()
+                        .is_some();
+
+                    if !migrated {
+                        let providers = ["groq", "soniox", "llm_groq", "llm_openai"];
+                        for provider in providers {
+                            let output = std::process::Command::new("security")
+                                .args(["find-generic-password", "-s", "com.talx.app", "-a", provider, "-w"])
+                                .output();
+                            if let Ok(output) = output {
+                                if output.status.success() {
+                                    let key = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                                    if !key.is_empty() {
+                                        let db_key = format!("api_key:{provider}");
+                                        let _ = db::set_setting(&app_state.db_conn, &db_key, &key);
+                                    }
+                                }
+                            }
+                        }
+                        let _ = db::set_setting(&app_state.db_conn, "keychain_migrated", "1");
+                    }
+                };
+            }
+
+            // Load API keys from database (with env var fallback for dev)
             {
                 let state = app.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
                     let providers = ["groq", "soniox", "llm_groq", "llm_openai"];
+                    let env_vars = [
+                        ("groq", "GROQ_API_KEY"),
+                        ("soniox", "SONIOX_API_KEY"),
+                        ("llm_groq", "GROQ_LLM_API_KEY"),
+                        ("llm_openai", "OPENAI_API_KEY"),
+                    ];
+
                     for provider in providers {
-                        match keychain::get_key(provider) {
-                            Ok(Some(key)) => match provider {
+                        // Check env var first (dev mode override)
+                        let env_key = env_vars.iter().find(|(p, _)| *p == provider).map(|(_, v)| *v);
+                        let from_env = env_key
+                            .and_then(|var| std::env::var(var).ok())
+                            .filter(|v| !v.is_empty());
+
+                        let key = from_env.or_else(|| {
+                            let db_key = format!("api_key:{provider}");
+                            db::get_setting(&app_state.db_conn, &db_key).ok().flatten()
+                        });
+
+                        if let Some(key) = key {
+                            match provider {
                                 "groq" => app_state.groq_api_key = key,
                                 "soniox" => app_state.soniox_api_key = key,
                                 "llm_groq" => app_state.llm_groq_api_key = key,
                                 "llm_openai" => app_state.llm_openai_api_key = key,
                                 _ => {}
-                            },
-                            Ok(None) => {}
-                            Err(e) => {
-                                eprintln!("Warning: failed to load {provider} key from keychain: {e}");
                             }
                         }
                     }
@@ -822,6 +944,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            paste_to_focused_app,
             resize_window,
             open_dashboard_window,
             update_tray_status,
@@ -833,7 +956,6 @@ pub fn run() {
             set_api_key,
             get_api_key,
             delete_api_key,
-            migrate_legacy_keys,
             test_api_key,
             set_hotkey,
             get_hotkey,
@@ -848,8 +970,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::Reopen { .. } = event {
-                let _ = open_dashboard_window(app_handle.clone(), None);
+            match event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    // Prevent app from quitting when windows close — this is a tray app
+                    api.prevent_exit();
+                }
+                tauri::RunEvent::Reopen { .. } => {
+                    let _ = open_dashboard_window(app_handle.clone(), None);
+                }
+                _ => {}
             }
         });
 }

@@ -1,38 +1,26 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
-import { IdlePill } from "./components/IdlePill";
-import { RecordingCard } from "./components/RecordingCard";
-import { ResultCard } from "./components/ResultCard";
-import { useFirstUse } from "./hooks/useFirstUse";
+import { Widget } from "./components/Widget";
+import type { WidgetState } from "./components/Widget";
 import { sessionStore } from "./stores/sessionStore";
-import { computeDiffRanges } from "./utils/diffRanges";
-
-type WidgetState = "idle" | "recording" | "result";
 
 const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
-  idle: { width: 200, height: 60 },
-  recording: { width: 300, height: 300 },
-  result: { width: 300, height: 280 },
+  idle: { width: 120, height: 36 },
+  recording: { width: 220, height: 36 },
+  polishing: { width: 120, height: 36 },
+  success: { width: 120, height: 36 },
 };
 
 export const App = () => {
   const [state, setState] = useState<WidgetState>("idle");
   const [launching, setLaunching] = useState(true);
   const [timer, setTimer] = useState("0:00");
-  const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [polishing, setPolishing] = useState(false);
-  const [polishFailed, setPolishFailed] = useState(false);
-  const [polishModel, setPolishModel] = useState("");
-  const [polishLatencyMs, setPolishLatencyMs] = useState(0);
-  const [diffRanges, setDiffRanges] = useState<Array<{ start: number; end: number }>>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secondsRef = useRef(0);
   const polishGenRef = useRef(0);
-
-  const [isFirstRecording, markRecordingUsed] = useFirstUse("recording");
-  const [isFirstStop, markStopUsed] = useFirstUse("stop");
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Entrance animation
   useEffect(() => {
@@ -43,11 +31,27 @@ export const App = () => {
   // Resize window on state change
   useEffect(() => {
     const size = WINDOW_SIZES[state];
-    invoke("resize_window", { width: size.width, height: size.height }).catch(
-      (err: unknown) => {
-        console.error("Failed to resize window:", err);
-      },
-    );
+    const prevState = document.body.dataset.widgetState;
+
+    // When shrinking (recording → polishing/idle), delay resize for CSS transition
+    const isShrinking =
+      prevState === "recording" && state !== "recording";
+
+    const doResize = () => {
+      invoke("resize_window", { width: size.width, height: size.height }).catch(
+        (err: unknown) => {
+          console.error("Failed to resize window:", err);
+        },
+      );
+    };
+
+    if (isShrinking) {
+      setTimeout(doResize, 350);
+    } else {
+      doResize();
+    }
+
+    document.body.dataset.widgetState = state;
   }, [state]);
 
   // Sync tray status
@@ -56,36 +60,6 @@ export const App = () => {
       console.error("Failed to update tray status:", err);
     });
   }, [state]);
-
-  // One-time migration: move any legacy localStorage keys to OS keychain
-  useEffect(() => {
-    const legacyKeys: Array<[string, string]> = [
-      ["groq", "talx:key-groq-asr"],
-      ["soniox", "talx:key-soniox"],
-      ["llm_groq", "talx:key-groq-llm"],
-      ["llm_openai", "talx:key-openai-llm"],
-    ];
-
-    const keysToMigrate: Array<[string, string]> = [];
-    for (const [provider, storageKey] of legacyKeys) {
-      const key = localStorage.getItem(storageKey);
-      if (key) {
-        keysToMigrate.push([provider, key]);
-      }
-    }
-
-    if (keysToMigrate.length > 0) {
-      invoke("migrate_legacy_keys", { keys: keysToMigrate })
-        .then(() => {
-          for (const [, storageKey] of legacyKeys) {
-            localStorage.removeItem(storageKey);
-          }
-        })
-        .catch((err: unknown) => {
-          console.error("Failed to migrate legacy keys:", err);
-        });
-    }
-  }, []);
 
   // Sync persisted hotkey to Rust backend on mount
   useEffect(() => {
@@ -110,68 +84,25 @@ export const App = () => {
     }
   }, []);
 
-  const handleStartRecording = useCallback(() => {
-    setTranscript("");
-    setError(null);
-    setPolishing(false);
-    setPolishFailed(false);
-    setPolishModel("");
-    setPolishLatencyMs(0);
-    setDiffRanges([]);
-    polishGenRef.current += 1;
-    markRecordingUsed();
-
-    invoke("start_recording").catch((err: unknown) => {
-      console.error("Failed to start recording:", err);
-      setError(String(err));
-      setTimeout(() => setError(null), 3000);
-    });
-  }, [markRecordingUsed]);
-
-  const handleStopRecording = useCallback(() => {
-    clearTimer();
-    markStopUsed();
-
-    invoke("stop_recording").catch((err: unknown) => {
-      console.error("Failed to stop recording:", err);
-      setError(String(err));
-      setState("idle");
-      setTimeout(() => setError(null), 3000);
-    });
-  }, [clearTimer, markStopUsed]);
-
-  const handleDismiss = useCallback(() => {
-    invoke("dismiss_result").catch(() => {});
-    setState("idle");
+  const clearSuccessTimeout = useCallback(() => {
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+      successTimeoutRef.current = null;
+    }
   }, []);
-
-  const handlePaste = useCallback(() => {
-    invoke("dismiss_result").catch(() => {});
-    navigator.clipboard.writeText(transcript).then(() => {
-      invoke("paste_to_focused_app").catch((err: unknown) => {
-        console.error("Failed to paste to focused app:", err);
-      });
-    }).catch((err: unknown) => {
-      console.error("Failed to write to clipboard:", err);
-    });
-    setState("idle");
-  }, [transcript]);
-
-  const handleCopy = useCallback(() => {
-    invoke("dismiss_result").catch(() => {});
-    navigator.clipboard.writeText(transcript).catch((err: unknown) => {
-      console.error("Failed to copy to clipboard:", err);
-    });
-    setState("idle");
-  }, [transcript]);
 
   // Listen for Tauri events from Rust backend
   useEffect(() => {
     const unlisteners = [
       listen("recording-started", () => {
+        // Cancel any pending success timeout
+        clearSuccessTimeout();
+
         setState("recording");
         secondsRef.current = 0;
         setTimer("0:00");
+        setError(null);
+        polishGenRef.current += 1;
 
         timerRef.current = setInterval(() => {
           secondsRef.current += 1;
@@ -179,20 +110,55 @@ export const App = () => {
         }, 1000);
       }),
 
-      listen<string>("transcription-partial", (event) => {
-        setTranscript(event.payload);
-      }),
-
       listen<string>("transcription-result", (event) => {
         clearTimer();
         const rawText = event.payload;
-        setTranscript(rawText);
-        setPolishing(true);
-        setPolishFailed(false);
-
         const durationSeconds = secondsRef.current;
-        const wordCount = rawText.split(/\s+/).filter(Boolean).length;
+
+        // Empty transcription — go straight to idle
+        if (!rawText.trim()) {
+          invoke("dismiss_result").catch(() => {});
+          setState("idle");
+          return;
+        }
+
+        setState("polishing");
         const gen = polishGenRef.current;
+
+        const handleResult = (text: string) => {
+          if (polishGenRef.current !== gen) return;
+
+          const wordCount = text.split(/\s+/).filter(Boolean).length;
+
+          // Auto-paste to focused app
+          invoke("paste_to_focused_app", { text }).catch((err: unknown) => {
+            console.error("Failed to paste to focused app:", err);
+          });
+
+          // Save transcription (fire-and-forget)
+          invoke("save_transcription", {
+            originalText: rawText,
+            polishedText: text,
+            wordCount,
+            durationSecs: durationSeconds,
+          })
+            .then(() => {
+              emit("transcription-saved").catch(() => {});
+            })
+            .catch((err: unknown) => {
+              console.error("Failed to save transcription:", err);
+            });
+
+          sessionStore.addStats({ wordCount, durationSeconds });
+
+          setState("success");
+          successTimeoutRef.current = setTimeout(() => {
+            invoke("dismiss_result").catch((err: unknown) => {
+              console.error("Failed to dismiss result:", err);
+            });
+            setState("idle");
+          }, 1500);
+        };
 
         invoke<{ polished_text: string; model: string; latency_ms: number }>(
           "polish_transcript",
@@ -200,65 +166,19 @@ export const App = () => {
         )
           .then((result) => {
             if (polishGenRef.current !== gen) return;
-
-            setTranscript(result.polished_text);
-            setPolishModel(result.model);
-            setPolishLatencyMs(result.latency_ms);
-            setDiffRanges(computeDiffRanges(rawText, result.polished_text));
-            setPolishFailed(false);
-
-            invoke("save_transcription", {
-              originalText: rawText,
-              polishedText: result.polished_text,
-              wordCount: result.polished_text.split(/\s+/).filter(Boolean).length,
-              durationSecs: durationSeconds,
-            }).then(() => {
-              emit("transcription-saved").catch(() => {});
-            }).catch((err: unknown) => {
-              console.error("Failed to save transcription:", err);
-            });
-
-            sessionStore.addStats({
-              wordCount: result.polished_text.split(/\s+/).filter(Boolean).length,
-              durationSeconds,
-            });
-
-            setPolishing(false);
-            setState("result");
+            handleResult(result.polished_text);
           })
           .catch((err: unknown) => {
             if (polishGenRef.current !== gen) return;
-
-            console.error("Polishing failed:", err);
-            setPolishFailed(true);
-            setPolishModel("raw");
-            setPolishLatencyMs(0);
-            setDiffRanges([]);
-
-            invoke("save_transcription", {
-              originalText: rawText,
-              polishedText: rawText,
-              wordCount,
-              durationSecs: durationSeconds,
-            }).then(() => {
-              emit("transcription-saved").catch(() => {});
-            }).catch((err: unknown) => {
-              console.error("Failed to save transcription:", err);
-            });
-
-            sessionStore.addStats({
-              wordCount,
-              durationSeconds,
-            });
-
-            setPolishing(false);
-            setState("result");
+            console.error("Polishing failed, using raw text:", err);
+            handleResult(rawText);
           });
       }),
 
       listen<string>("recording-error", (event) => {
         clearTimer();
         setError(event.payload);
+        invoke("dismiss_result").catch(() => {});
         setState("idle");
         setTimeout(() => setError(null), 4000);
       }),
@@ -269,46 +189,19 @@ export const App = () => {
         unlisten.then((fn) => fn());
       }
     };
-  }, [clearTimer]);
+  }, [clearTimer, clearSuccessTimeout]);
 
-  // Cleanup timer on unmount
+  // Cleanup on unmount
   useEffect(() => {
-    return clearTimer;
-  }, [clearTimer]);
+    return () => {
+      clearTimer();
+      clearSuccessTimeout();
+    };
+  }, [clearTimer, clearSuccessTimeout]);
 
   return (
     <div className={`widget-wrapper ${launching ? "widget-wrapper--launching" : ""}`}>
-      {error && (
-        <div className="widget-error">
-          <span className="widget-error__text">{error}</span>
-        </div>
-      )}
-      {!error && state === "idle" && (
-        <IdlePill onActivate={handleStartRecording} showHint={isFirstRecording} />
-      )}
-      {!error && state === "recording" && (
-        <RecordingCard
-          transcript={transcript}
-          timer={timer}
-          onStop={handleStopRecording}
-          showStopHint={isFirstStop}
-          polishing={polishing}
-        />
-      )}
-      {!error && state === "result" && (
-        <ResultCard
-          text={transcript}
-          diffRanges={diffRanges}
-          wordCount={transcript.split(/\s+/).filter(Boolean).length}
-          latencyMs={polishLatencyMs}
-          cost="$0.00"
-          model={polishModel}
-          polished={!polishFailed}
-          onPaste={handlePaste}
-          onCopy={handleCopy}
-          onDismiss={handleDismiss}
-        />
-      )}
+      <Widget state={state} timer={timer} error={error} />
     </div>
   );
 };

@@ -1,5 +1,8 @@
+import { useEffect } from "react";
 import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { useSessionStats } from "../../hooks/useSessionStore";
+import { sessionStore } from "../../stores/sessionStore";
 import { StatCard } from "./StatCard";
 import { ProviderStatus } from "./ProviderStatus";
 import { RecentTranscriptions } from "./RecentTranscriptions";
@@ -16,6 +19,18 @@ interface HomePageProps {
 
 export const HomePage = ({ onNavigate }: HomePageProps) => {
   const stats = useSessionStats();
+
+  useEffect(() => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    invoke<{ words: number; recording_secs: number; sessions: number }>("get_today_stats", { sinceMs: startOfDay })
+      .then((dbStats) => {
+        sessionStore.loadFromDb(dbStats);
+      })
+      .catch((err: unknown) => {
+        console.error("Failed to load today stats:", err);
+      });
+  }, []);
 
   const handleStartRecording = () => {
     emit("start-recording").catch((err: unknown) => {

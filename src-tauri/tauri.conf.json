@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "Talx",
-        "width": 200,
-        "height": 60,
+        "width": 120,
+        "height": 36,
         "resizable": false,
         "decorations": false,
         "transparent": true,
@@ -24,7 +24,8 @@
         "skipTaskbar": true,
         "center": true,
         "visible": false,
-        "shadow": false
+        "shadow": false,
+        "closable": false
       }
     ],
     "security": {

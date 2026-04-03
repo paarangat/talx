@@ -25,6 +25,13 @@ export const sessionStore = {
     return state;
   },
 
+  loadFromDb(stats: { words: number; recording_secs: number; sessions: number }): void {
+    state.wordsToday = stats.words;
+    state.recordingSecondsToday = stats.recording_secs;
+    state.sessionsToday = stats.sessions;
+    notify();
+  },
+
   addStats(entry: { wordCount: number; durationSeconds: number }): void {
     state.wordsToday += entry.wordCount;
     state.recordingSecondsToday += entry.durationSeconds;
