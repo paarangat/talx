@@ -118,15 +118,16 @@ cd talx
 # Install dependencies
 pnpm install
 
-# Set up your API keys (first time only)
-cp .env.example .env
-# Edit .env with your API keys
+# (Optional) Set API keys for dev — or configure them in the app's settings UI
+# export GROQ_API_KEY=your_key
+# export SONIOX_API_KEY=your_key
+# export OPENAI_API_KEY=your_key
 
 # Run in development mode
 pnpm tauri dev
 ```
 
-On first launch, Talx will prompt you to enter your API keys. They're stored securely in your OS keychain.
+On first launch, open settings to enter your API keys. They're stored locally in an SQLite database on your machine.
 
 ## Configuration
 
@@ -142,25 +143,28 @@ On first launch, Talx will prompt you to enter your API keys. They're stored sec
 
 ```
 talx/
-├── src/                          # React frontend (widget UI)
-│   ├── components/               # React components
-│   │   ├── Widget.tsx            # Main widget (orchestrates states)
-│   │   ├── IdlePill.tsx          # Minimal idle state
-│   │   ├── RecordingCard.tsx     # Expanded recording view
-│   │   └── ResultCard.tsx        # Polished result with actions
-│   ├── hooks/                    # Custom React hooks
-│   ├── services/                 # API integrations (Soniox, LLM)
-│   ├── App.tsx
+├── src/                          # React frontend
+│   ├── components/
+│   │   ├── Widget.tsx            # Main widget (idle/recording/result states)
+│   │   ├── dashboard/            # Home page, provider status, stats
+│   │   └── settings/             # General, API keys, appearance, about tabs
+│   ├── hooks/                    # useDrag, useSessionStore
+│   ├── stores/                   # Session state management
+│   ├── styles/                   # CSS tokens, animations, layout
+│   ├── App.tsx                   # Root component with routing
+│   ├── Dashboard.tsx             # Dashboard view
+│   ├── Settings.tsx              # Settings view with tab navigation
 │   └── main.tsx
 ├── src-tauri/                    # Rust backend (system integration)
 │   ├── src/
-│   │   ├── lib.rs                # Tauri commands
-│   │   ├── hotkey.rs             # Global hotkey registration
+│   │   ├── lib.rs                # Tauri commands, app state, hotkeys
 │   │   ├── audio.rs              # Microphone capture
-│   │   └── paste.rs              # Text injection into active app
+│   │   ├── db.rs                 # SQLite storage (settings, transcriptions)
+│   │   ├── asr/                  # Speech-to-text (Groq Whisper, Soniox)
+│   │   └── llm/                  # Transcript polishing (Groq LLM, OpenAI)
 │   ├── Cargo.toml
 │   └── tauri.conf.json
-├── docs/                         # Documentation
+├── docs/                         # Architecture, design system, contributing
 └── README.md
 ```
 
@@ -168,8 +172,10 @@ talx/
 
 - [x] Core dictation pipeline (record → transcribe → polish → paste)
 - [x] Settings UI with API key management
+- [x] Session history (local SQLite)
+- [x] Dashboard with usage stats and recent transcriptions
+- [x] Model selection per provider
 - [ ] Voice Activity Detection (client-side, no cloud for silence detection)
-- [ ] Session history (local, via IndexedDB)
 - [ ] Custom dictionaries and snippets
 - [ ] Windows support
 - [ ] Linux support
@@ -190,9 +196,9 @@ Contributions are welcome! See [docs/contributing.md](docs/contributing.md) for 
 
 ## Security
 
-- API keys are stored in the OS keychain, never in plaintext
+- API keys are stored in a local SQLite database on your machine
 - Audio is sent directly to the ASR provider, never stored locally
-- Transcripts exist only in memory during processing
+- Transcripts are stored locally for session history — never sent anywhere else
 - No telemetry, no analytics, no phone-home
 
 ## License
