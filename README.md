@@ -5,7 +5,7 @@
 <h1 align="center">Talx</h1>
 
 <p align="center">
-  <strong>Open-source, cross-platform voice-to-text dictation that works everywhere on your desktop.</strong>
+  <strong>Open-source voice-to-text dictation for macOS. Speak anywhere, get polished text.</strong>
 </p>
 
 <p align="center">
@@ -16,29 +16,21 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/paarangat/talx/blob/main/LICENSE"><img src="https://img.shields.io/github/license/paarangat/talx?color=b07a3b&style=flat-square" alt="License" /></a>
-  <a href="https://github.com/paarangat/talx/stargazers"><img src="https://img.shields.io/github/stars/paarangat/talx?color=b07a3b&style=flat-square" alt="Stars" /></a>
-  <a href="https://github.com/paarangat/talx/issues"><img src="https://img.shields.io/github/issues/paarangat/talx?color=c0503a&style=flat-square" alt="Issues" /></a>
-  <a href="https://github.com/paarangat/talx/pulls"><img src="https://img.shields.io/github/issues-pr/paarangat/talx?color=5d8a4c&style=flat-square" alt="PRs" /></a>
-</p>
-
 ---
 
-Speak naturally in any app — Talx transcribes your speech in real-time, polishes it with AI, and pastes the result right where your cursor is. Supports English, Hindi, and mixed-language (code-switching) dictation.
-
-Think [Wispr Flow](https://wisprflow.ai), but **open-source**, **self-hosted** with your own API keys, and **privacy-first**.
+Talx is a floating dictation widget for macOS. Hold a hotkey, speak, and it transcribes your speech, polishes it with an LLM, and pastes the result into whatever app you're using. You bring your own API keys — nothing is routed through our servers.
 
 ## Features
 
 - **System-wide dictation** — works in any text field, any app
-- **Real-time streaming** — see your words appear as you speak
-- **AI polishing** — removes filler words, fixes grammar, matches context
-- **Multilingual** — English, Hindi, and code-switching (Hinglish) out of the box
-- **Privacy-first** — your API keys, your data, no middleman
-- **Free tier** — Groq-powered ASR and LLM at zero cost
-- **Cloud tier** — bring your own Soniox + OpenAI keys for streaming and higher accuracy
-- **Lightweight** — ~8MB bundle, ~50MB RAM (vs 150MB+ for Electron apps)
+- **Real-time streaming** — see words appear as you speak (with Soniox)
+- **AI polishing** — removes filler words, fixes grammar, formats text
+- **Two ASR providers** — Groq Whisper (free, batch) or Soniox (paid, streaming)
+- **Two LLM providers** — Groq (free) or OpenAI (paid)
+- **Model selection** — choose specific models per provider
+- **Session history** — transcriptions saved locally in SQLite
+- **Dashboard** — usage stats and recent transcriptions
+- **Configurable hotkey** — default `⌥ Space`, customizable in settings
 
 ## How it works
 
@@ -49,162 +41,106 @@ Think [Wispr Flow](https://wisprflow.ai), but **open-source**, **self-hosted** w
 ```
 
 1. **Hold** the hotkey (default: `⌥ Space`)
-2. **Speak** naturally — the floating widget shows your words streaming in
-3. **Release** the hotkey — AI cleans up the transcript
-4. **Done** — polished text is auto-pasted into whatever app you're using
+2. **Speak** — the floating widget shows your transcript
+3. **Release** — the LLM cleans up the transcript
+4. **Done** — polished text is auto-pasted into the active app
 
 ## Tech stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Desktop framework | [Tauri v2](https://v2.tauri.app/) | Tiny bundle, native performance, cross-platform |
-| Frontend | React + TypeScript + Vite | Fast dev, large contributor pool |
-| Transcription (free) | [Groq Whisper](https://console.groq.com/) | Free, fast inference |
-| Transcription (cloud) | [Soniox API](https://soniox.com/) | Best accuracy, code-switching, streaming |
-| AI polishing (free) | [Groq LLM](https://console.groq.com/) | Free, fast inference |
-| AI polishing (cloud) | [OpenAI API](https://platform.openai.com/) | High-quality text cleanup |
-| Backend | Rust | System-level access (hotkeys, audio, paste) |
-
-## Cost comparison
-
-At typical usage (~30 min/day of dictation):
-
-| | Wispr Flow Pro | Talx (self-hosted) |
-|---|---|---|
-| Monthly cost | $12/month | **Free** (Groq) / ~$2-3 (cloud keys) |
-| Annual cost | $144/year | **Free** (Groq) / ~$24-36 (cloud keys) |
-| Data privacy | Cloud (their servers) | Your API keys, always |
-| Customization | None | Full control, open source |
+| Layer | Technology |
+|-------|-----------|
+| Desktop framework | [Tauri v2](https://v2.tauri.app/) |
+| Frontend | React + TypeScript + Vite |
+| Transcription (free) | [Groq Whisper](https://console.groq.com/) |
+| Transcription (streaming) | [Soniox API](https://soniox.com/) |
+| LLM polishing (free) | [Groq LLM](https://console.groq.com/) |
+| LLM polishing (paid) | [OpenAI API](https://platform.openai.com/) |
+| Backend | Rust |
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs/) (for the Tauri backend)
+- macOS
+- [Rust](https://rustup.rs/)
 - [Node.js](https://nodejs.org/) 18+ and [pnpm](https://pnpm.io/)
-- API keys (at least one tier):
-  - **Free**: [Groq API key](https://console.groq.com/) — ASR + LLM at no cost
-  - **Cloud**: [Soniox](https://console.soniox.com/) + [OpenAI](https://platform.openai.com/) — streaming + higher accuracy
-
-<details>
-<summary><strong>macOS</strong></summary>
+- At least one set of API keys:
+  - **Free**: [Groq API key](https://console.groq.com/) — handles both ASR and LLM
+  - **Streaming**: [Soniox API key](https://console.soniox.com/) — real-time transcription
+  - **Paid LLM**: [OpenAI API key](https://platform.openai.com/) — alternative polishing
 
 ```bash
-xcode-select --install
+xcode-select --install  # if you don't have Xcode CLI tools
 ```
-</details>
-
-<details>
-<summary><strong>Linux (Ubuntu/Debian)</strong></summary>
-
-```bash
-sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-```
-</details>
-
-<details>
-<summary><strong>Windows</strong></summary>
-
-- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-- WebView2 (pre-installed on Windows 10/11)
-</details>
 
 ## Quick start
 
 ```bash
-# Clone the repo
 git clone https://github.com/paarangat/talx.git
 cd talx
-
-# Install dependencies
 pnpm install
-
-# (Optional) Set API keys for dev — or configure them in the app's settings UI
-# export GROQ_API_KEY=your_key
-# export SONIOX_API_KEY=your_key
-# export OPENAI_API_KEY=your_key
-
-# Run in development mode
 pnpm tauri dev
 ```
 
-On first launch, open settings to enter your API keys. They're stored locally in an SQLite database on your machine.
+On first launch, open settings to enter your API keys. They're stored in a local SQLite database.
 
 ## Configuration
+
+All settings are configurable through the settings UI:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Hotkey | `⌥ Space` | Hold to record, release to process |
-| Language | `en, hi` | Languages for transcription |
-| API tier | `free` | `free` (Groq) or `cloud` (Soniox + OpenAI) |
-| LLM model | `llama-3.3-70b-versatile` | Model used for polishing (varies by tier) |
-| Auto-paste | `true` | Automatically paste into active app |
+| ASR provider | Groq | Groq (batch) or Soniox (streaming) |
+| LLM provider | Groq | Groq or OpenAI |
+| ASR/LLM model | Provider default | Selectable per provider |
+| Auto-paste | On | Paste polished text into active app |
 
 ## Project structure
 
 ```
 talx/
 ├── src/                          # React frontend
+│   ├── App.tsx                   # Root component, window routing via query params
+│   ├── Dashboard.tsx             # Dashboard view
+│   ├── Settings.tsx              # Settings with tab navigation
 │   ├── components/
-│   │   ├── Widget.tsx            # Main widget (idle/recording/result states)
-│   │   ├── dashboard/            # Home page, provider status, stats
+│   │   ├── Widget.tsx            # Floating widget (idle/recording/polishing/success)
+│   │   ├── dashboard/            # Stats, provider status, recent transcriptions
 │   │   └── settings/             # General, API keys, appearance, about tabs
 │   ├── hooks/                    # useDrag, useSessionStore
-│   ├── stores/                   # Session state management
-│   ├── styles/                   # CSS tokens, animations, layout
-│   ├── App.tsx                   # Root component with routing
-│   ├── Dashboard.tsx             # Dashboard view
-│   ├── Settings.tsx              # Settings view with tab navigation
-│   └── main.tsx
-├── src-tauri/                    # Rust backend (system integration)
+│   ├── stores/                   # Session stats (words, duration, count)
+│   └── styles/                   # CSS tokens, animations
+├── src-tauri/                    # Rust backend
 │   ├── src/
 │   │   ├── lib.rs                # Tauri commands, app state, hotkeys
-│   │   ├── audio.rs              # Microphone capture
-│   │   ├── db.rs                 # SQLite storage (settings, transcriptions)
-│   │   ├── asr/                  # Speech-to-text (Groq Whisper, Soniox)
-│   │   └── llm/                  # Transcript polishing (Groq LLM, OpenAI)
-│   ├── Cargo.toml
+│   │   ├── audio.rs              # cpal-based microphone capture
+│   │   ├── db.rs                 # SQLite (transcriptions + settings)
+│   │   ├── asr/                  # Groq Whisper, Soniox WebSocket
+│   │   └── llm/                  # Groq LLM, OpenAI
 │   └── tauri.conf.json
-├── docs/                         # Architecture, design system, contributing
-└── README.md
+└── docs/                         # Architecture, design system, contributing guide
 ```
 
 ## Roadmap
 
 - [x] Core dictation pipeline (record → transcribe → polish → paste)
 - [x] Settings UI with API key management
-- [x] Session history (local SQLite)
+- [x] Session history in SQLite
 - [x] Dashboard with usage stats and recent transcriptions
 - [x] Model selection per provider
-- [ ] Voice Activity Detection (client-side, no cloud for silence detection)
-- [ ] Custom dictionaries and snippets
-- [ ] Windows support
-- [ ] Linux support
+- [ ] Voice activity detection
+- [ ] Windows and Linux support
 
 ## Contributing
 
-Contributions are welcome! See [docs/contributing.md](docs/contributing.md) for the full guide.
-
-**Good first issues** are labeled [`good first issue`](https://github.com/paarangat/talx/labels/good%20first%20issue) — great starting points for new contributors.
-
-### Where to contribute
-
-| Area | Directory | Requires |
-|------|-----------|----------|
-| Widget UI, animations, settings | `src/` | React + TypeScript |
-| Hotkeys, audio, paste, performance | `src-tauri/` | Rust |
-| Guides, translations, setup docs | `docs/` | Markdown |
+See [docs/contributing.md](docs/contributing.md).
 
 ## Security
 
-- API keys are stored in a local SQLite database on your machine
-- Audio is sent directly to the ASR provider, never stored locally
-- Transcripts are stored locally for session history — never sent anywhere else
-- No telemetry, no analytics, no phone-home
+- API keys stored locally in SQLite on your machine
+- Audio sent directly to the ASR provider you choose
+- Transcripts stored locally only
+- No telemetry, no analytics
 
 ## License
 
-[MIT](LICENSE) — free to use, modify, and distribute.
-
-## Acknowledgments
-
-Inspired by [Wispr Flow](https://wisprflow.ai). Built with [Tauri](https://v2.tauri.app/), [Groq](https://groq.com/), [Soniox](https://soniox.com/), and [OpenAI](https://openai.com/).
+[MIT](LICENSE)
