@@ -286,6 +286,33 @@
   color: var(--text-primary);
 }
 
+/* ─── Custom model input ─── */
+.settings-model-custom {
+  display: flex;
+  align-items: center;
+}
+
+.settings-model-custom__input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  width: 200px;
+  transition: border-color 0.2s var(--ease-spring);
+}
+
+.settings-model-custom__input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.settings-model-custom__input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* ─── API Key field ─── */
 .api-key-field {
   display: flex;

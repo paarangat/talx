@@ -6,6 +6,8 @@ const LLM_PROVIDER_KEY = "talx:llm-provider";
 const AUTO_PASTE_KEY = "talx:auto-paste";
 const LANGUAGE_KEY = "talx:language";
 const HOTKEY_KEY = "talx:hotkey";
+const ASR_MODEL_KEY = "talx:asr-model";
+const LLM_MODEL_KEY = "talx:llm-model";
 
 export const GeneralTab = () => {
   const [autoPaste, setAutoPaste] = useState(() => {
@@ -25,6 +27,18 @@ export const GeneralTab = () => {
   const [llmProvider, setLlmProvider] = useState(() => {
     return localStorage.getItem(LLM_PROVIDER_KEY) ?? "groq";
   });
+  const [asrModel, setAsrModel] = useState(() => {
+    return localStorage.getItem(ASR_MODEL_KEY) ?? "whisper-large-v3-turbo";
+  });
+  const [llmModel, setLlmModel] = useState(() => {
+    return localStorage.getItem(LLM_MODEL_KEY) ?? "llama-3.3-70b-versatile";
+  });
+  const [asrModels, setAsrModels] = useState<string[]>([]);
+  const [llmModels, setLlmModels] = useState<string[]>([]);
+  const [asrModelsLoading, setAsrModelsLoading] = useState(false);
+  const [llmModelsLoading, setLlmModelsLoading] = useState(false);
+  const [asrCustom, setAsrCustom] = useState(false);
+  const [llmCustom, setLlmCustom] = useState(false);
 
   // Sync provider to Rust on mount and change
   useEffect(() => {
@@ -39,14 +53,93 @@ export const GeneralTab = () => {
     });
   }, [llmProvider]);
 
+  useEffect(() => {
+    invoke("set_asr_model", { model: asrModel }).catch((err: unknown) => {
+      console.error("Failed to set ASR model:", err);
+    });
+  }, [asrModel]);
+
+  useEffect(() => {
+    invoke("set_llm_model", { model: llmModel }).catch((err: unknown) => {
+      console.error("Failed to set LLM model:", err);
+    });
+  }, [llmModel]);
+
+  const fetchModels = (provider: string, setModels: (m: string[]) => void, setLoading: (b: boolean) => void) => {
+    setLoading(true);
+    invoke<Array<{ id: string }>>("fetch_models", { provider })
+      .then((models) => {
+        const ids = models.map((m) => m.id).sort();
+        setModels(ids);
+      })
+      .catch(() => {
+        setModels([]);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    const providerKey = asrProvider === "groq" ? "groq" : "soniox";
+    fetchModels(providerKey, setAsrModels, setAsrModelsLoading);
+    setAsrCustom(false);
+  }, [asrProvider]);
+
+  useEffect(() => {
+    const providerKey = llmProvider === "groq" ? "llm_groq" : "llm_openai";
+    fetchModels(providerKey, setLlmModels, setLlmModelsLoading);
+    setLlmCustom(false);
+  }, [llmProvider]);
+
   const handleProviderChange = (value: string) => {
     setAsrProvider(value);
     localStorage.setItem(ASR_PROVIDER_KEY, value);
+    const defaultModel = value === "groq" ? "whisper-large-v3-turbo" : "soniox-v2";
+    setAsrModel(defaultModel);
+    localStorage.setItem(ASR_MODEL_KEY, defaultModel);
   };
 
   const handleLlmProviderChange = (value: string) => {
     setLlmProvider(value);
     localStorage.setItem(LLM_PROVIDER_KEY, value);
+    const defaultModel = value === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+    setLlmModel(defaultModel);
+    localStorage.setItem(LLM_MODEL_KEY, defaultModel);
+  };
+
+  const handleAsrModelChange = (value: string) => {
+    if (value === "__custom__") {
+      setAsrCustom(true);
+      return;
+    }
+    setAsrModel(value);
+    localStorage.setItem(ASR_MODEL_KEY, value);
+  };
+
+  const handleLlmModelChange = (value: string) => {
+    if (value === "__custom__") {
+      setLlmCustom(true);
+      return;
+    }
+    setLlmModel(value);
+    localStorage.setItem(LLM_MODEL_KEY, value);
+  };
+
+  const handleAsrCustomSubmit = (value: string) => {
+    if (value.trim()) {
+      setAsrModel(value.trim());
+      localStorage.setItem(ASR_MODEL_KEY, value.trim());
+    }
+    setAsrCustom(false);
+  };
+
+  const handleLlmCustomSubmit = (value: string) => {
+    if (value.trim()) {
+      setLlmModel(value.trim());
+      localStorage.setItem(LLM_MODEL_KEY, value.trim());
+    }
+    setLlmCustom(false);
   };
 
   const formatHotkeyDisplay = (hk: string): string => {
@@ -154,6 +247,49 @@ export const GeneralTab = () => {
       </section>
 
       <section className="settings-tab__section">
+        <h3 className="settings-tab__section-header">Speech Model</h3>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">ASR model</span>
+            <span className="settings-tab__description">
+              {asrModelsLoading ? "Loading models..." : `Current: ${asrModel}`}
+            </span>
+          </div>
+          {asrCustom ? (
+            <div className="settings-model-custom">
+              <input
+                className="settings-model-custom__input"
+                type="text"
+                defaultValue={asrModel}
+                placeholder="Model ID"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAsrCustomSubmit(e.currentTarget.value);
+                  if (e.key === "Escape") setAsrCustom(false);
+                }}
+                onBlur={(e) => handleAsrCustomSubmit(e.currentTarget.value)}
+              />
+            </div>
+          ) : (
+            <select
+              className="settings-select"
+              value={asrModels.includes(asrModel) ? asrModel : "__custom_current__"}
+              onChange={(e) => handleAsrModelChange(e.target.value)}
+              disabled={asrModelsLoading}
+            >
+              {asrModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+              {!asrModels.includes(asrModel) && (
+                <option value="__custom_current__">{asrModel}</option>
+              )}
+              <option value="__custom__">Custom...</option>
+            </select>
+          )}
+        </div>
+      </section>
+
+      <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Polish Provider</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
@@ -172,6 +308,49 @@ export const GeneralTab = () => {
             <option value="groq">Groq LLM (Free)</option>
             <option value="openai">OpenAI (Paid)</option>
           </select>
+        </div>
+      </section>
+
+      <section className="settings-tab__section">
+        <h3 className="settings-tab__section-header">Polish Model</h3>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">LLM model</span>
+            <span className="settings-tab__description">
+              {llmModelsLoading ? "Loading models..." : `Current: ${llmModel}`}
+            </span>
+          </div>
+          {llmCustom ? (
+            <div className="settings-model-custom">
+              <input
+                className="settings-model-custom__input"
+                type="text"
+                defaultValue={llmModel}
+                placeholder="Model ID"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleLlmCustomSubmit(e.currentTarget.value);
+                  if (e.key === "Escape") setLlmCustom(false);
+                }}
+                onBlur={(e) => handleLlmCustomSubmit(e.currentTarget.value)}
+              />
+            </div>
+          ) : (
+            <select
+              className="settings-select"
+              value={llmModels.includes(llmModel) ? llmModel : "__custom_current__"}
+              onChange={(e) => handleLlmModelChange(e.target.value)}
+              disabled={llmModelsLoading}
+            >
+              {llmModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+              {!llmModels.includes(llmModel) && (
+                <option value="__custom_current__">{llmModel}</option>
+              )}
+              <option value="__custom__">Custom...</option>
+            </select>
+          )}
         </div>
       </section>
 
