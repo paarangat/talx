@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import { emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStats } from "../../hooks/useSessionStore";
+import { useRecordingControl } from "../../hooks/useRecordingControl";
 import { sessionStore } from "../../stores/sessionStore";
 import { StatCard } from "./StatCard";
 import { ProviderStatus } from "./ProviderStatus";
@@ -19,6 +19,7 @@ interface HomePageProps {
 
 export const HomePage = ({ onNavigate }: HomePageProps) => {
   const stats = useSessionStats();
+  const { error, isProcessing, isRecording, toggleRecording } = useRecordingControl();
 
   useEffect(() => {
     const now = new Date();
@@ -32,21 +33,24 @@ export const HomePage = ({ onNavigate }: HomePageProps) => {
       });
   }, []);
 
-  const handleStartRecording = () => {
-    emit("start-recording").catch((err: unknown) => {
-      console.error("Failed to emit start-recording:", err);
-    });
-  };
-
   return (
     <div className="home-page">
       <h2 className="home-page__title">Home</h2>
 
       <div className="home-page__quick-action">
-        <button className="home-page__record-btn" onClick={handleStartRecording}>
+        <button
+          className="home-page__record-btn"
+          onClick={toggleRecording}
+          disabled={isProcessing}
+        >
           <span className="home-page__record-dot" />
-          Start Recording
+          {isProcessing ? "Processing..." : isRecording ? "Stop Recording" : "Start Recording"}
         </button>
+        {error && (
+          <p className="home-page__record-error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
 
       <section className="home-page__stats">

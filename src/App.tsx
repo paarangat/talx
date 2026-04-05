@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { Widget } from "./components/Widget";
 import type { WidgetState } from "./components/Widget";
+import { AUTO_PASTE_KEY, DEFAULT_HOTKEY, HOTKEY_KEY } from "./lib/settings";
+import { subscribeToUiErrors } from "./lib/uiErrors";
 import { sessionStore } from "./stores/sessionStore";
 
 const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
@@ -21,6 +23,7 @@ export const App = () => {
   const secondsRef = useRef(0);
   const polishGenRef = useRef(0);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Entrance animation
   useEffect(() => {
@@ -63,10 +66,16 @@ export const App = () => {
 
   // Sync persisted hotkey to Rust backend on mount
   useEffect(() => {
-    const savedHotkey = localStorage.getItem("talx:hotkey");
-    if (savedHotkey && savedHotkey !== "alt+space") {
+    const savedHotkey = localStorage.getItem(HOTKEY_KEY);
+    if (savedHotkey && savedHotkey !== DEFAULT_HOTKEY) {
       invoke("set_hotkey", { hotkey: savedHotkey }).catch((err: unknown) => {
         console.error("Failed to sync hotkey:", err);
+        localStorage.setItem(HOTKEY_KEY, DEFAULT_HOTKEY);
+        invoke("set_hotkey", { hotkey: DEFAULT_HOTKEY }).catch(
+          (fallbackErr: unknown) => {
+            console.error("Failed to restore default hotkey:", fallbackErr);
+          },
+        );
       });
     }
   }, []);
@@ -90,6 +99,33 @@ export const App = () => {
       successTimeoutRef.current = null;
     }
   }, []);
+
+  const clearErrorTimeout = useCallback(() => {
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+      errorTimeoutRef.current = null;
+    }
+  }, []);
+
+  const showError = useCallback(
+    (message: string) => {
+      clearErrorTimeout();
+      setError(message);
+      errorTimeoutRef.current = setTimeout(() => {
+        setError(null);
+        errorTimeoutRef.current = null;
+      }, 4000);
+    },
+    [clearErrorTimeout],
+  );
+
+  useEffect(() => {
+    return subscribeToUiErrors((messages) => {
+      if (messages.length > 0) {
+        showError(messages.join(" | "));
+      }
+    });
+  }, [showError]);
 
   // Listen for Tauri events from Rust backend
   useEffect(() => {
@@ -117,7 +153,10 @@ export const App = () => {
 
         // Empty transcription — go straight to idle
         if (!rawText.trim()) {
-          invoke("dismiss_result").catch(() => {});
+          invoke("dismiss_result").catch((err: unknown) => {
+            console.error("Failed to dismiss empty transcription result:", err);
+            showError("Failed to reset the widget after an empty transcription.");
+          });
           setState("idle");
           return;
         }
@@ -130,10 +169,11 @@ export const App = () => {
 
           const wordCount = text.split(/\s+/).filter(Boolean).length;
 
-          // Auto-paste to focused app
-          invoke("paste_to_focused_app", { text }).catch((err: unknown) => {
-            console.error("Failed to paste to focused app:", err);
-          });
+          if (localStorage.getItem(AUTO_PASTE_KEY) !== "false") {
+            invoke("paste_to_focused_app", { text }).catch((err: unknown) => {
+              console.error("Failed to paste to focused app:", err);
+            });
+          }
 
           // Save transcription (fire-and-forget)
           invoke("save_transcription", {
@@ -143,7 +183,10 @@ export const App = () => {
             durationSecs: durationSeconds,
           })
             .then(() => {
-              emit("transcription-saved").catch(() => {});
+              emit("transcription-saved").catch((err: unknown) => {
+                console.error("Failed to notify dashboard about saved transcription:", err);
+                showError("Transcription saved, but the dashboard did not refresh automatically.");
+              });
             })
             .catch((err: unknown) => {
               console.error("Failed to save transcription:", err);
@@ -177,10 +220,12 @@ export const App = () => {
 
       listen<string>("recording-error", (event) => {
         clearTimer();
-        setError(event.payload);
-        invoke("dismiss_result").catch(() => {});
+        showError(event.payload);
+        invoke("dismiss_result").catch((err: unknown) => {
+          console.error("Failed to dismiss errored transcription result:", err);
+          showError("Failed to reset the widget after the recording error.");
+        });
         setState("idle");
-        setTimeout(() => setError(null), 4000);
       }),
     ];
 
@@ -189,15 +234,16 @@ export const App = () => {
         unlisten.then((fn) => fn());
       }
     };
-  }, [clearTimer, clearSuccessTimeout]);
+  }, [clearTimer, clearSuccessTimeout, showError]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       clearTimer();
       clearSuccessTimeout();
+      clearErrorTimeout();
     };
-  }, [clearTimer, clearSuccessTimeout]);
+  }, [clearErrorTimeout, clearTimer, clearSuccessTimeout]);
 
   return (
     <div className={`widget-wrapper ${launching ? "widget-wrapper--launching" : ""}`}>

@@ -109,6 +109,22 @@
   border-radius: 3px;
 }
 
+.dashboard__notice {
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(192, 80, 58, 0.22);
+  background: rgba(192, 80, 58, 0.10);
+  color: #8f3422;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dashboard__notice p + p {
+  margin-top: 6px;
+}
+
 /* ─── Home page ─── */
 .home-page {
   max-width: 520px;
@@ -372,4 +388,12 @@
   border-radius: 50%;
   background: #fff;
   opacity: 0.9;
+}
+
+.home-page__record-error {
+  margin-top: 10px;
+  color: #8f3422;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
 }
