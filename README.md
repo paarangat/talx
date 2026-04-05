@@ -146,10 +146,6 @@ Talx uses Groq's free API tier for both transcription and LLM polishing. Here's 
 
 Groq's free tier provides 8 hours of audio transcription per day (28,800 seconds) and 1,000 LLM polishing calls — roughly **250x the capacity** of Wispr Flow's free plan. The only trade-off is per-minute rate limits (20 STT requests/min) which don't affect normal dictation.
 
-## Contributing
-
-See [docs/contributing.md](docs/contributing.md).
-
 ## Security
 
 - API keys stored locally in SQLite on your machine
