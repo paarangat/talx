@@ -18,7 +18,7 @@ import {
 } from "../../lib/settings";
 
 export const GeneralTab = () => {
-  const { isProcessing, isRecording, toggleRecording } = useRecordingControl();
+  const { error, isProcessing, isRecording, toggleRecording } = useRecordingControl();
   const [autoPaste, setAutoPaste] = useState(() => {
     const stored = localStorage.getItem(AUTO_PASTE_KEY);
     return stored !== null ? stored === "true" : true;
@@ -260,7 +260,7 @@ export const GeneralTab = () => {
               Start or stop a dictation test directly from settings
             </span>
           </div>
-          <div className="settings-tab__row-action">
+          <div className="settings-tab__row-action settings-tab__row-action--stack">
             <button
               className="settings-tab__btn-secondary"
               onClick={toggleRecording}
@@ -268,6 +268,11 @@ export const GeneralTab = () => {
             >
               {isProcessing ? "Processing..." : isRecording ? "Stop Recording" : "Start Recording"}
             </button>
+            {error && (
+              <span className="settings-tab__inline-error" role="alert">
+                {error}
+              </span>
+            )}
           </div>
         </div>
       </section>

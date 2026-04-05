@@ -19,7 +19,7 @@ interface HomePageProps {
 
 export const HomePage = ({ onNavigate }: HomePageProps) => {
   const stats = useSessionStats();
-  const { isProcessing, isRecording, toggleRecording } = useRecordingControl();
+  const { error, isProcessing, isRecording, toggleRecording } = useRecordingControl();
 
   useEffect(() => {
     const now = new Date();
@@ -46,6 +46,11 @@ export const HomePage = ({ onNavigate }: HomePageProps) => {
           <span className="home-page__record-dot" />
           {isProcessing ? "Processing..." : isRecording ? "Stop Recording" : "Start Recording"}
         </button>
+        {error && (
+          <p className="home-page__record-error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
 
       <section className="home-page__stats">

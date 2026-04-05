@@ -13,23 +13,36 @@ import {
   LLM_MODEL_KEY,
   LLM_PROVIDER_KEY,
 } from "./lib/settings";
+import { getErrorMessage, reportUiError } from "./lib/uiErrors";
 import "./styles/tokens.css";
 import "./styles/animations.css";
 import "./styles/App.css";
 import "./styles/settings.css";
 import "./styles/dashboard.css";
 
+const syncStartupSetting = (
+  command: string,
+  payload: Record<string, string>,
+  label: string,
+) => {
+  invoke(command, payload).catch((err: unknown) => {
+    const message = `Failed to sync ${label}: ${getErrorMessage(err, "Unknown error.")}`;
+    console.error(message, err);
+    reportUiError(message);
+  });
+};
+
 const savedAsrProvider = localStorage.getItem(ASR_PROVIDER_KEY) ?? DEFAULT_ASR_PROVIDER;
-invoke("set_asr_provider", { provider: savedAsrProvider }).catch(() => {});
+syncStartupSetting("set_asr_provider", { provider: savedAsrProvider }, "speech provider");
 
 const savedAsrModel = localStorage.getItem(ASR_MODEL_KEY) ?? DEFAULT_ASR_MODEL;
-invoke("set_asr_model", { model: savedAsrModel }).catch(() => {});
+syncStartupSetting("set_asr_model", { model: savedAsrModel }, "speech model");
 
 const savedLlmProvider = localStorage.getItem(LLM_PROVIDER_KEY) ?? DEFAULT_LLM_PROVIDER;
-invoke("set_llm_provider", { provider: savedLlmProvider }).catch(() => {});
+syncStartupSetting("set_llm_provider", { provider: savedLlmProvider }, "polish provider");
 
 const savedLlmModel = localStorage.getItem(LLM_MODEL_KEY) ?? DEFAULT_LLM_MODEL;
-invoke("set_llm_model", { model: savedLlmModel }).catch(() => {});
+syncStartupSetting("set_llm_model", { model: savedLlmModel }, "polish model");
 
 const params = new URLSearchParams(window.location.search);
 const windowType = params.get("window");
