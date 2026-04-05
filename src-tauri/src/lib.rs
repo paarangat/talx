@@ -54,6 +54,18 @@ struct AppState {
     hold_mode: bool,
 }
 
+fn default_hotkey() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "ctrl+shift+space"
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        "alt+space"
+    }
+}
+
 #[tauri::command]
 async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(), String> {
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
@@ -63,8 +75,7 @@ async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(),
             use arboard::Clipboard;
             use enigo::{Enigo, Key, Keyboard, Settings};
 
-            let mut clipboard =
-                Clipboard::new().map_err(|e| format!("Clipboard error: {e}"))?;
+            let mut clipboard = Clipboard::new().map_err(|e| format!("Clipboard error: {e}"))?;
             clipboard
                 .set_text(&text)
                 .map_err(|e| format!("Failed to write clipboard: {e}"))?;
@@ -138,19 +149,16 @@ fn open_dashboard_window(app: tauri::AppHandle, section: Option<String>) -> Resu
     let section_param = section.unwrap_or_default();
     let url = format!("index.html?window=dashboard&section={}", section_param);
 
-    let _window = tauri::WebviewWindowBuilder::new(
-        &app,
-        "dashboard",
-        tauri::WebviewUrl::App(url.into()),
-    )
-    .title("Talx")
-    .inner_size(720.0, 600.0)
-    .decorations(true)
-    .resizable(true)
-    .center()
-    .always_on_top(false)
-    .build()
-    .map_err(|e: tauri::Error| e.to_string())?;
+    let _window =
+        tauri::WebviewWindowBuilder::new(&app, "dashboard", tauri::WebviewUrl::App(url.into()))
+            .title("Talx")
+            .inner_size(720.0, 600.0)
+            .decorations(true)
+            .resizable(true)
+            .center()
+            .always_on_top(false)
+            .build()
+            .map_err(|e: tauri::Error| e.to_string())?;
 
     Ok(())
 }
@@ -213,12 +221,16 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
         match provider {
             asr::AsrProvider::Groq => {
                 if app_state.groq_api_key.is_empty() {
-                    return Err("Groq API key not configured. Set it in Settings > API Keys.".to_string());
+                    return Err(
+                        "Groq API key not configured. Set it in Settings > API Keys.".to_string(),
+                    );
                 }
             }
             asr::AsrProvider::Soniox => {
                 if soniox_key.is_empty() {
-                    return Err("Soniox API key not configured. Set it in Settings > API Keys.".to_string());
+                    return Err(
+                        "Soniox API key not configured. Set it in Settings > API Keys.".to_string(),
+                    );
                 }
             }
         }
@@ -236,7 +248,12 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
             let state = app.state::<Mutex<AppState>>();
             let app_state = state.lock().map_err(|e| e.to_string())?;
             let buf = app_state.audio_buffer.clone().ok_or("No audio buffer")?;
-            let sr = app_state.audio_capture.0.as_ref().map(|c| c.sample_rate()).unwrap_or(16000);
+            let sr = app_state
+                .audio_capture
+                .0
+                .as_ref()
+                .map(|c| c.sample_rate())
+                .unwrap_or(16000);
             (buf, sr)
         };
 
@@ -266,7 +283,8 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
         });
     }
 
-    app.emit("recording-started", ()).map_err(|e| e.to_string())?;
+    app.emit("recording-started", ())
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -309,7 +327,8 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     match provider {
         asr::AsrProvider::Groq => {
             tokio::spawn(async move {
-                match asr::groq::transcribe(&samples, sample_rate, &groq_key, &asr_model_val).await {
+                match asr::groq::transcribe(&samples, sample_rate, &groq_key, &asr_model_val).await
+                {
                     Ok(text) => {
                         let _ = app_handle.emit("transcription-result", &text);
                     }
@@ -450,9 +469,17 @@ async fn fetch_models(app: tauri::AppHandle, provider: String) -> Result<Vec<Mod
                 .filter_map(|m| {
                     let id = m["id"].as_str()?.to_string();
                     if provider == "groq" {
-                        if id.contains("whisper") { Some(ModelInfo { id }) } else { None }
+                        if id.contains("whisper") {
+                            Some(ModelInfo { id })
+                        } else {
+                            None
+                        }
                     } else {
-                        if id.contains("whisper") { None } else { Some(ModelInfo { id }) }
+                        if id.contains("whisper") {
+                            None
+                        } else {
+                            Some(ModelInfo { id })
+                        }
                     }
                 })
                 .collect();
@@ -587,14 +614,13 @@ async fn test_api_key(provider: String, key: String) -> Result<(), String> {
             }
         }
         "soniox" => {
-            use tokio_tungstenite::tungstenite::Message;
             use futures_util::{SinkExt, StreamExt};
+            use tokio_tungstenite::tungstenite::Message;
 
-            let (ws_stream, _) = tokio_tungstenite::connect_async(
-                "wss://api.soniox.com/transcribe-websocket",
-            )
-            .await
-            .map_err(|e| format!("Connection failed: {e}"))?;
+            let (ws_stream, _) =
+                tokio_tungstenite::connect_async("wss://api.soniox.com/transcribe-websocket")
+                    .await
+                    .map_err(|e| format!("Connection failed: {e}"))?;
 
             let (mut ws_write, mut ws_read) = ws_stream.split();
 
@@ -612,18 +638,18 @@ async fn test_api_key(provider: String, key: String) -> Result<(), String> {
                 .map_err(|e| format!("Failed to send config: {e}"))?;
 
             // Read one response to check for auth errors
-            let response = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                ws_read.next(),
-            )
-            .await
-            .map_err(|_| "Connection timed out".to_string())?;
+            let response = tokio::time::timeout(std::time::Duration::from_secs(5), ws_read.next())
+                .await
+                .map_err(|_| "Connection timed out".to_string())?;
 
             let result = match response {
                 Some(Ok(Message::Text(text))) => {
                     let text_str: &str = &text;
                     let lower = text_str.to_lowercase();
-                    if lower.contains("error") || lower.contains("unauthorized") || lower.contains("invalid") {
+                    if lower.contains("error")
+                        || lower.contains("unauthorized")
+                        || lower.contains("invalid")
+                    {
                         Err(format!("Invalid key: {text_str}"))
                     } else {
                         Ok(())
@@ -633,12 +659,8 @@ async fn test_api_key(provider: String, key: String) -> Result<(), String> {
                     let reason = frame.map(|f| f.reason.to_string()).unwrap_or_default();
                     Err(format!("Connection rejected: {reason}"))
                 }
-                Some(Err(e)) => {
-                    Err(format!("WebSocket error: {e}"))
-                }
-                None => {
-                    Err("Connection closed unexpectedly".to_string())
-                }
+                Some(Err(e)) => Err(format!("WebSocket error: {e}")),
+                None => Err("Connection closed unexpectedly".to_string()),
                 _ => Ok(()),
             };
 
@@ -712,7 +734,10 @@ fn dismiss_result(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn polish_transcript(app: tauri::AppHandle, text: String) -> Result<llm::PolishResult, String> {
+async fn polish_transcript(
+    app: tauri::AppHandle,
+    text: String,
+) -> Result<llm::PolishResult, String> {
     let (provider, api_key, llm_model) = {
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|e| e.to_string())?;
@@ -720,19 +745,28 @@ async fn polish_transcript(app: tauri::AppHandle, text: String) -> Result<llm::P
         let key = match app_state.llm_provider {
             llm::LlmProvider::Groq => {
                 if app_state.llm_groq_api_key.is_empty() {
-                    return Err("Groq LLM API key not configured. Set it in Settings > API Keys.".to_string());
+                    return Err(
+                        "Groq LLM API key not configured. Set it in Settings > API Keys."
+                            .to_string(),
+                    );
                 }
                 app_state.llm_groq_api_key.clone()
             }
             llm::LlmProvider::OpenAi => {
                 if app_state.llm_openai_api_key.is_empty() {
-                    return Err("OpenAI API key not configured. Set it in Settings > API Keys.".to_string());
+                    return Err(
+                        "OpenAI API key not configured. Set it in Settings > API Keys.".to_string(),
+                    );
                 }
                 app_state.llm_openai_api_key.clone()
             }
         };
 
-        (app_state.llm_provider.clone(), key, app_state.llm_model.clone())
+        (
+            app_state.llm_provider.clone(),
+            key,
+            app_state.llm_model.clone(),
+        )
     };
 
     llm::polish(&text, &provider, &api_key, &llm_model).await
@@ -748,8 +782,14 @@ fn save_transcription(
 ) -> Result<db::TranscriptionRow, String> {
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|e| e.to_string())?;
-    db::save(&app_state.db_conn, &original_text, &polished_text, word_count, duration_secs)
-        .map_err(|e| e.to_string())
+    db::save(
+        &app_state.db_conn,
+        &original_text,
+        &polished_text,
+        word_count,
+        duration_secs,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -784,10 +824,7 @@ fn get_today_stats(app: tauri::AppHandle, since_ms: i64) -> Result<db::TodayStat
     db::get_today_stats(&app_state.db_conn, since_ms).map_err(|e| e.to_string())
 }
 
-fn register_hotkey(
-    app: &tauri::AppHandle,
-    shortcut: &str,
-) -> Result<(), String> {
+fn register_hotkey(app: &tauri::AppHandle, shortcut: &str) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
     let app_handle = app.clone();
@@ -837,7 +874,8 @@ fn register_hotkey(
                             // Check if this was a hold (≥400ms)
                             let is_hold = if let Ok(mut app_state) = state.lock() {
                                 if let Some(down_time) = app_state.key_down_time {
-                                    if down_time.elapsed() >= std::time::Duration::from_millis(400) {
+                                    if down_time.elapsed() >= std::time::Duration::from_millis(400)
+                                    {
                                         app_state.hold_mode = true;
                                         true
                                     } else {
@@ -911,8 +949,8 @@ pub fn run() {
             }));
 
             let app_data_dir = app.path().app_data_dir()?;
-            let db_conn = db::init_db(&app_data_dir)
-                .map_err(|e| format!("Failed to init database: {e}"))?;
+            let db_conn =
+                db::init_db(&app_data_dir).map_err(|e| format!("Failed to init database: {e}"))?;
 
             app.manage(Mutex::new(AppState {
                 recording_status: RecordingStatus::Idle,
@@ -927,7 +965,7 @@ pub fn run() {
                 llm_model: "llama-3.3-70b-versatile".to_string(),
                 llm_groq_api_key: String::new(),
                 llm_openai_api_key: String::new(),
-                current_hotkey: "alt+space".to_string(),
+                current_hotkey: default_hotkey().to_string(),
                 db_conn,
                 key_down_time: None,
                 hold_mode: false,
@@ -948,11 +986,19 @@ pub fn run() {
                         let providers = ["groq", "soniox", "llm_groq", "llm_openai"];
                         for provider in providers {
                             let output = std::process::Command::new("security")
-                                .args(["find-generic-password", "-s", "com.talx.app", "-a", provider, "-w"])
+                                .args([
+                                    "find-generic-password",
+                                    "-s",
+                                    "com.talx.app",
+                                    "-a",
+                                    provider,
+                                    "-w",
+                                ])
                                 .output();
                             if let Ok(output) = output {
                                 if output.status.success() {
-                                    let key = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                                    let key =
+                                        String::from_utf8_lossy(&output.stdout).trim().to_string();
                                     if !key.is_empty() {
                                         let db_key = format!("api_key:{provider}");
                                         let _ = db::set_setting(&app_state.db_conn, &db_key, &key);
@@ -979,7 +1025,10 @@ pub fn run() {
 
                     for provider in providers {
                         // Check env var first (dev mode override)
-                        let env_key = env_vars.iter().find(|(p, _)| *p == provider).map(|(_, v)| *v);
+                        let env_key = env_vars
+                            .iter()
+                            .find(|(p, _)| *p == provider)
+                            .map(|(_, v)| *v);
                         let from_env = env_key
                             .and_then(|var| std::env::var(var).ok())
                             .filter(|v| !v.is_empty());
@@ -1008,20 +1057,26 @@ pub fn run() {
                 .menu(&menu)
                 .icon(icon)
                 .tooltip("Talx")
-                .on_menu_event(|app_handle: &tauri::AppHandle, event: tauri::menu::MenuEvent| {
-                    match event.id().as_ref() {
+                .on_menu_event(
+                    |app_handle: &tauri::AppHandle, event: tauri::menu::MenuEvent| match event
+                        .id()
+                        .as_ref()
+                    {
                         "open-dashboard" => {
                             let _ = open_dashboard_window(app_handle.clone(), None);
                         }
                         "open-settings" => {
-                            let _ = open_dashboard_window(app_handle.clone(), Some("settings".to_string()));
+                            let _ = open_dashboard_window(
+                                app_handle.clone(),
+                                Some("settings".to_string()),
+                            );
                         }
                         "quit" => {
                             app_handle.exit(0);
                         }
                         _ => {}
-                    }
-                })
+                    },
+                )
                 .build(app)?;
 
             // Make the webview background transparent on macOS
@@ -1044,23 +1099,14 @@ pub fn run() {
             }
 
             // Register global hotkey (⌥Space)
-            register_hotkey(app.handle(), "alt+space")?;
-
-            // Check if this is the first launch
-            let first_launch_flag = app_data_dir.join(".launched");
-            let is_first_launch = !first_launch_flag.exists();
+            register_hotkey(app.handle(), default_hotkey())?;
 
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
                 // Small delay to let the app fully initialize
                 std::thread::sleep(std::time::Duration::from_millis(300));
 
-                // Open settings only on first launch
-                if is_first_launch {
-                    let _ = open_dashboard_window(app_handle.clone(), None);
-                    let _ = std::fs::create_dir_all(&app_data_dir);
-                    let _ = std::fs::write(&first_launch_flag, b"");
-                }
+                let _ = open_dashboard_window(app_handle.clone(), Some("settings".to_string()));
 
                 // Show widget after app is ready
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -1100,14 +1146,16 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
+        .run(|_app_handle, event| {
             match event {
                 tauri::RunEvent::ExitRequested { api, .. } => {
                     // Prevent app from quitting when windows close — this is a tray app
                     api.prevent_exit();
                 }
+                #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
-                    let _ = open_dashboard_window(app_handle.clone(), None);
+                    let _ =
+                        open_dashboard_window(_app_handle.clone(), Some("settings".to_string()));
                 }
                 _ => {}
             }

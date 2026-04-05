@@ -1,37 +1,46 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-
-const ASR_PROVIDER_KEY = "talx:asr-provider";
-const LLM_PROVIDER_KEY = "talx:llm-provider";
-const AUTO_PASTE_KEY = "talx:auto-paste";
-const LANGUAGE_KEY = "talx:language";
-const HOTKEY_KEY = "talx:hotkey";
-const ASR_MODEL_KEY = "talx:asr-model";
-const LLM_MODEL_KEY = "talx:llm-model";
+import { useRecordingControl } from "../../hooks/useRecordingControl";
+import {
+  ASR_MODEL_KEY,
+  ASR_PROVIDER_KEY,
+  AUTO_PASTE_KEY,
+  DEFAULT_ASR_MODEL,
+  DEFAULT_ASR_PROVIDER,
+  DEFAULT_HOTKEY,
+  DEFAULT_LANGUAGE,
+  DEFAULT_LLM_MODEL,
+  DEFAULT_LLM_PROVIDER,
+  HOTKEY_KEY,
+  LANGUAGE_KEY,
+  LLM_MODEL_KEY,
+  LLM_PROVIDER_KEY,
+} from "../../lib/settings";
 
 export const GeneralTab = () => {
+  const { isProcessing, isRecording, toggleRecording } = useRecordingControl();
   const [autoPaste, setAutoPaste] = useState(() => {
     const stored = localStorage.getItem(AUTO_PASTE_KEY);
     return stored !== null ? stored === "true" : true;
   });
   const [language, setLanguage] = useState(() => {
-    return localStorage.getItem(LANGUAGE_KEY) ?? "hi+en";
+    return localStorage.getItem(LANGUAGE_KEY) ?? DEFAULT_LANGUAGE;
   });
   const [hotkey, setHotkey] = useState(() => {
-    return localStorage.getItem(HOTKEY_KEY) ?? "alt+space";
+    return localStorage.getItem(HOTKEY_KEY) ?? DEFAULT_HOTKEY;
   });
   const [recordingHotkey, setRecordingHotkey] = useState(false);
   const [asrProvider, setAsrProvider] = useState(() => {
-    return localStorage.getItem(ASR_PROVIDER_KEY) ?? "groq";
+    return localStorage.getItem(ASR_PROVIDER_KEY) ?? DEFAULT_ASR_PROVIDER;
   });
   const [llmProvider, setLlmProvider] = useState(() => {
-    return localStorage.getItem(LLM_PROVIDER_KEY) ?? "groq";
+    return localStorage.getItem(LLM_PROVIDER_KEY) ?? DEFAULT_LLM_PROVIDER;
   });
   const [asrModel, setAsrModel] = useState(() => {
-    return localStorage.getItem(ASR_MODEL_KEY) ?? "whisper-large-v3-turbo";
+    return localStorage.getItem(ASR_MODEL_KEY) ?? DEFAULT_ASR_MODEL;
   });
   const [llmModel, setLlmModel] = useState(() => {
-    return localStorage.getItem(LLM_MODEL_KEY) ?? "llama-3.3-70b-versatile";
+    return localStorage.getItem(LLM_MODEL_KEY) ?? DEFAULT_LLM_MODEL;
   });
   const [asrModels, setAsrModels] = useState<string[]>([]);
   const [llmModels, setLlmModels] = useState<string[]>([]);
@@ -40,7 +49,6 @@ export const GeneralTab = () => {
   const [asrCustom, setAsrCustom] = useState(false);
   const [llmCustom, setLlmCustom] = useState(false);
 
-  // Sync provider to Rust on mount and change
   useEffect(() => {
     invoke("set_asr_provider", { provider: asrProvider }).catch((err: unknown) => {
       console.error("Failed to set ASR provider:", err);
@@ -65,11 +73,15 @@ export const GeneralTab = () => {
     });
   }, [llmModel]);
 
-  const fetchModels = (provider: string, setModels: (m: string[]) => void, setLoading: (b: boolean) => void) => {
+  const fetchModels = (
+    provider: string,
+    setModels: (models: string[]) => void,
+    setLoading: (loading: boolean) => void,
+  ) => {
     setLoading(true);
     invoke<Array<{ id: string }>>("fetch_models", { provider })
       .then((models) => {
-        const ids = models.map((m) => m.id).sort();
+        const ids = models.map((model) => model.id).sort();
         setModels(ids);
       })
       .catch(() => {
@@ -95,7 +107,7 @@ export const GeneralTab = () => {
   const handleProviderChange = (value: string) => {
     setAsrProvider(value);
     localStorage.setItem(ASR_PROVIDER_KEY, value);
-    const defaultModel = value === "groq" ? "whisper-large-v3-turbo" : "soniox-v2";
+    const defaultModel = value === "groq" ? DEFAULT_ASR_MODEL : "soniox-v2";
     setAsrModel(defaultModel);
     localStorage.setItem(ASR_MODEL_KEY, defaultModel);
   };
@@ -103,7 +115,7 @@ export const GeneralTab = () => {
   const handleLlmProviderChange = (value: string) => {
     setLlmProvider(value);
     localStorage.setItem(LLM_PROVIDER_KEY, value);
-    const defaultModel = value === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+    const defaultModel = value === "groq" ? DEFAULT_LLM_MODEL : "gpt-4o-mini";
     setLlmModel(defaultModel);
     localStorage.setItem(LLM_MODEL_KEY, defaultModel);
   };
@@ -113,6 +125,7 @@ export const GeneralTab = () => {
       setAsrCustom(true);
       return;
     }
+
     setAsrModel(value);
     localStorage.setItem(ASR_MODEL_KEY, value);
   };
@@ -122,67 +135,81 @@ export const GeneralTab = () => {
       setLlmCustom(true);
       return;
     }
+
     setLlmModel(value);
     localStorage.setItem(LLM_MODEL_KEY, value);
   };
 
   const handleAsrCustomSubmit = (value: string) => {
     if (value.trim()) {
-      setAsrModel(value.trim());
-      localStorage.setItem(ASR_MODEL_KEY, value.trim());
+      const nextValue = value.trim();
+      setAsrModel(nextValue);
+      localStorage.setItem(ASR_MODEL_KEY, nextValue);
     }
     setAsrCustom(false);
   };
 
   const handleLlmCustomSubmit = (value: string) => {
     if (value.trim()) {
-      setLlmModel(value.trim());
-      localStorage.setItem(LLM_MODEL_KEY, value.trim());
+      const nextValue = value.trim();
+      setLlmModel(nextValue);
+      localStorage.setItem(LLM_MODEL_KEY, nextValue);
     }
     setLlmCustom(false);
   };
 
-  const formatHotkeyDisplay = (hk: string): string => {
-    return hk
+  const formatHotkeyDisplay = (value: string): string => {
+    return value
       .split("+")
       .map((part) => {
         switch (part) {
-          case "alt": return "⌥";
-          case "ctrl": return "⌃";
-          case "shift": return "⇧";
-          case "cmd": case "meta": return "⌘";
-          case "space": return "Space";
-          default: return part.charAt(0).toUpperCase() + part.slice(1);
+          case "alt":
+            return "Alt";
+          case "ctrl":
+            return "Ctrl";
+          case "shift":
+            return "Shift";
+          case "cmd":
+          case "meta":
+            return "Cmd";
+          case "space":
+            return "Space";
+          default:
+            return part.charAt(0).toUpperCase() + part.slice(1);
         }
       })
       .join(" ");
   };
 
   useEffect(() => {
-    if (!recordingHotkey) return;
+    if (!recordingHotkey) {
+      return;
+    }
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
 
-      if (e.key === "Escape") {
+      if (event.key === "Escape") {
         setRecordingHotkey(false);
         return;
       }
 
-      // Ignore lone modifier presses
-      if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
+      if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) {
+        return;
+      }
 
       const parts: string[] = [];
-      if (e.ctrlKey) parts.push("ctrl");
-      if (e.altKey) parts.push("alt");
-      if (e.shiftKey) parts.push("shift");
-      if (e.metaKey) parts.push("cmd");
+      if (event.ctrlKey) parts.push("ctrl");
+      if (event.altKey) parts.push("alt");
+      if (event.shiftKey) parts.push("shift");
+      if (event.metaKey) parts.push("cmd");
 
-      // Require at least one modifier
-      if (parts.length === 0) return;
+      if (parts.length === 0) {
+        return;
+      }
 
-      const key = e.key === " " ? "space" : e.key.toLowerCase();
+      const key = event.key === " " ? "space" : event.key.toLowerCase();
       parts.push(key);
 
       const newHotkey = parts.join("+");
@@ -208,7 +235,7 @@ export const GeneralTab = () => {
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Activation shortcut</span>
-            <span className="settings-tab__description">Press to start/stop recording</span>
+            <span className="settings-tab__description">Press to start or stop recording</span>
           </div>
           <div className="settings-tab__row-action">
             <span className="settings-tab__hotkey-badge">
@@ -225,20 +252,41 @@ export const GeneralTab = () => {
       </section>
 
       <section className="settings-tab__section">
+        <h3 className="settings-tab__section-header">Microphone</h3>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Recording test</span>
+            <span className="settings-tab__description">
+              Start or stop a dictation test directly from settings
+            </span>
+          </div>
+          <div className="settings-tab__row-action">
+            <button
+              className="settings-tab__btn-secondary"
+              onClick={toggleRecording}
+              disabled={isProcessing}
+            >
+              {isProcessing ? "Processing..." : isRecording ? "Stop Recording" : "Start Recording"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Speech Provider</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Transcription engine</span>
             <span className="settings-tab__description">
               {asrProvider === "groq"
-                ? "Groq Whisper — free, batch transcription after recording stops"
-                : "Soniox — paid, real-time streaming transcription"}
+                ? "Groq Whisper - free, batch transcription after recording stops"
+                : "Soniox - paid, real-time streaming transcription"}
             </span>
           </div>
           <select
             className="settings-select"
             value={asrProvider}
-            onChange={(e) => handleProviderChange(e.target.value)}
+            onChange={(event) => handleProviderChange(event.target.value)}
           >
             <option value="groq">Groq Whisper (Free)</option>
             <option value="soniox">Soniox (Paid)</option>
@@ -263,22 +311,24 @@ export const GeneralTab = () => {
                 defaultValue={asrModel}
                 placeholder="Model ID"
                 autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAsrCustomSubmit(e.currentTarget.value);
-                  if (e.key === "Escape") setAsrCustom(false);
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleAsrCustomSubmit(event.currentTarget.value);
+                  if (event.key === "Escape") setAsrCustom(false);
                 }}
-                onBlur={(e) => handleAsrCustomSubmit(e.currentTarget.value)}
+                onBlur={(event) => handleAsrCustomSubmit(event.currentTarget.value)}
               />
             </div>
           ) : (
             <select
               className="settings-select"
               value={asrModels.includes(asrModel) ? asrModel : "__custom_current__"}
-              onChange={(e) => handleAsrModelChange(e.target.value)}
+              onChange={(event) => handleAsrModelChange(event.target.value)}
               disabled={asrModelsLoading}
             >
-              {asrModels.map((m) => (
-                <option key={m} value={m}>{m}</option>
+              {asrModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
               ))}
               {!asrModels.includes(asrModel) && (
                 <option value="__custom_current__">{asrModel}</option>
@@ -296,14 +346,14 @@ export const GeneralTab = () => {
             <span className="settings-tab__label">LLM engine</span>
             <span className="settings-tab__description">
               {llmProvider === "groq"
-                ? "Groq LLM — free transcript polishing via Llama 3.3"
-                : "OpenAI — paid, high-quality transcript polishing"}
+                ? "Groq LLM - free transcript polishing via Llama 3.3"
+                : "OpenAI - paid, high-quality transcript polishing"}
             </span>
           </div>
           <select
             className="settings-select"
             value={llmProvider}
-            onChange={(e) => handleLlmProviderChange(e.target.value)}
+            onChange={(event) => handleLlmProviderChange(event.target.value)}
           >
             <option value="groq">Groq LLM (Free)</option>
             <option value="openai">OpenAI (Paid)</option>
@@ -328,22 +378,24 @@ export const GeneralTab = () => {
                 defaultValue={llmModel}
                 placeholder="Model ID"
                 autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleLlmCustomSubmit(e.currentTarget.value);
-                  if (e.key === "Escape") setLlmCustom(false);
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleLlmCustomSubmit(event.currentTarget.value);
+                  if (event.key === "Escape") setLlmCustom(false);
                 }}
-                onBlur={(e) => handleLlmCustomSubmit(e.currentTarget.value)}
+                onBlur={(event) => handleLlmCustomSubmit(event.currentTarget.value)}
               />
             </div>
           ) : (
             <select
               className="settings-select"
               value={llmModels.includes(llmModel) ? llmModel : "__custom_current__"}
-              onChange={(e) => handleLlmModelChange(e.target.value)}
+              onChange={(event) => handleLlmModelChange(event.target.value)}
               disabled={llmModelsLoading}
             >
-              {llmModels.map((m) => (
-                <option key={m} value={m}>{m}</option>
+              {llmModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
               ))}
               {!llmModels.includes(llmModel) && (
                 <option value="__custom_current__">{llmModel}</option>
@@ -388,9 +440,9 @@ export const GeneralTab = () => {
           <select
             className="settings-select"
             value={language}
-            onChange={(e) => {
-              setLanguage(e.target.value);
-              localStorage.setItem(LANGUAGE_KEY, e.target.value);
+            onChange={(event) => {
+              setLanguage(event.target.value);
+              localStorage.setItem(LANGUAGE_KEY, event.target.value);
             }}
           >
             <option value="en">English</option>

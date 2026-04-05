@@ -1,4 +1,4 @@
-use super::{PolishResult, SYSTEM_PROMPT};
+use super::{build_transcript_message, PolishResult, SYSTEM_PROMPT};
 use std::time::Instant;
 
 #[derive(serde::Serialize)]
@@ -43,10 +43,10 @@ pub async fn polish(text: &str, api_key: &str, model: &str) -> Result<PolishResu
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: text.to_string(),
+                content: build_transcript_message(text),
             },
         ],
-        temperature: 0.3,
+        temperature: 0.0,
         max_tokens: 1024,
     };
 

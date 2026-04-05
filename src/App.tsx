@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { Widget } from "./components/Widget";
 import type { WidgetState } from "./components/Widget";
+import { AUTO_PASTE_KEY, DEFAULT_HOTKEY, HOTKEY_KEY } from "./lib/settings";
 import { sessionStore } from "./stores/sessionStore";
 
 const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
@@ -63,10 +64,16 @@ export const App = () => {
 
   // Sync persisted hotkey to Rust backend on mount
   useEffect(() => {
-    const savedHotkey = localStorage.getItem("talx:hotkey");
-    if (savedHotkey && savedHotkey !== "alt+space") {
+    const savedHotkey = localStorage.getItem(HOTKEY_KEY);
+    if (savedHotkey && savedHotkey !== DEFAULT_HOTKEY) {
       invoke("set_hotkey", { hotkey: savedHotkey }).catch((err: unknown) => {
         console.error("Failed to sync hotkey:", err);
+        localStorage.setItem(HOTKEY_KEY, DEFAULT_HOTKEY);
+        invoke("set_hotkey", { hotkey: DEFAULT_HOTKEY }).catch(
+          (fallbackErr: unknown) => {
+            console.error("Failed to restore default hotkey:", fallbackErr);
+          },
+        );
       });
     }
   }, []);
@@ -130,10 +137,11 @@ export const App = () => {
 
           const wordCount = text.split(/\s+/).filter(Boolean).length;
 
-          // Auto-paste to focused app
-          invoke("paste_to_focused_app", { text }).catch((err: unknown) => {
-            console.error("Failed to paste to focused app:", err);
-          });
+          if (localStorage.getItem(AUTO_PASTE_KEY) !== "false") {
+            invoke("paste_to_focused_app", { text }).catch((err: unknown) => {
+              console.error("Failed to paste to focused app:", err);
+            });
+          }
 
           // Save transcription (fire-and-forget)
           invoke("save_transcription", {

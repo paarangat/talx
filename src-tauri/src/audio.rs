@@ -1,5 +1,5 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::Stream;
+use cpal::{FromSample, Sample, SampleFormat, SizedSample, Stream};
 use std::sync::{Arc, Mutex};
 
 pub struct AudioCapture {
@@ -28,12 +28,8 @@ impl AudioCapture {
             .map_err(|e| format!("Failed to get input config: {e}"))?;
 
         self.sample_rate = default_config.sample_rate().0;
-
-        let config = cpal::StreamConfig {
-            channels: 1,
-            sample_rate: default_config.sample_rate(),
-            buffer_size: cpal::BufferSize::Default,
-        };
+        let channels = usize::from(default_config.channels());
+        let config: cpal::StreamConfig = default_config.clone().into();
 
         let buffer = Arc::clone(&self.buffer);
         {
@@ -41,49 +37,45 @@ impl AudioCapture {
             buf.clear();
         }
 
-        let write_buffer = Arc::clone(&buffer);
-        let err_fn = |err: cpal::StreamError| {
-            eprintln!("Audio stream error: {err}");
-        };
-
         let stream = match default_config.sample_format() {
-            cpal::SampleFormat::I16 => device
-                .build_input_stream(
-                    &config,
-                    move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                        if let Ok(mut buf) = write_buffer.try_lock() {
-                            buf.extend_from_slice(data);
-                        }
-                    },
-                    err_fn,
-                    None,
-                )
-                .map_err(|e| format!("Failed to build i16 stream: {e}"))?,
-            cpal::SampleFormat::F32 => {
-                let write_buffer = Arc::clone(&self.buffer);
-                device
-                    .build_input_stream(
-                        &cpal::StreamConfig {
-                            channels: 1,
-                            sample_rate: default_config.sample_rate(),
-                            buffer_size: cpal::BufferSize::Default,
-                        },
-                        move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                            if let Ok(mut buf) = write_buffer.try_lock() {
-                                buf.extend(data.iter().map(|&s| {
-                                    (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
-                                }));
-                            }
-                        },
-                        err_fn,
-                        None,
-                    )
-                    .map_err(|e| format!("Failed to build f32 stream: {e}"))?
+            // Preserve the device's native channel layout and downmix to mono in software.
+            // Forcing mono at the stream level breaks on many Windows microphones.
+            SampleFormat::I8 => {
+                build_stream::<i8>(&device, &config, channels, Arc::clone(&buffer))?
             }
-            fmt => return Err(format!("Unsupported sample format: {fmt:?}")),
+            SampleFormat::I16 => {
+                build_stream::<i16>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            SampleFormat::I32 => {
+                build_stream::<i32>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            SampleFormat::I64 => {
+                build_stream::<i64>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            SampleFormat::U8 => {
+                build_stream::<u8>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            SampleFormat::U16 => {
+                build_stream::<u16>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            SampleFormat::U32 => {
+                build_stream::<u32>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            SampleFormat::U64 => {
+                build_stream::<u64>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            SampleFormat::F32 => {
+                build_stream::<f32>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            SampleFormat::F64 => {
+                build_stream::<f64>(&device, &config, channels, Arc::clone(&buffer))?
+            }
+            fmt => return Err(format!("Unsupported sample format: {fmt}")),
         };
 
-        stream.play().map_err(|e| format!("Failed to start stream: {e}"))?;
+        stream
+            .play()
+            .map_err(|e| format!("Failed to start stream: {e}"))?;
         self.stream = Some(stream);
 
         Ok(Arc::clone(&self.buffer))
@@ -101,4 +93,55 @@ impl AudioCapture {
         };
         (samples, self.sample_rate)
     }
+}
+
+fn build_stream<T>(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    channels: usize,
+    buffer: Arc<Mutex<Vec<i16>>>,
+) -> Result<Stream, String>
+where
+    T: Sample + SizedSample + Copy + Send + 'static,
+    f32: FromSample<T>,
+{
+    device
+        .build_input_stream(
+            config,
+            move |data: &[T], _: &cpal::InputCallbackInfo| {
+                write_input_data::<T>(data, channels, &buffer);
+            },
+            |err| {
+                eprintln!("Audio stream error: {err}");
+            },
+            None,
+        )
+        .map_err(|e| format!("Failed to build {} stream: {e}", T::FORMAT))
+}
+
+fn write_input_data<T>(input: &[T], channels: usize, buffer: &Arc<Mutex<Vec<i16>>>)
+where
+    T: Sample + Copy,
+    f32: FromSample<T>,
+{
+    if let Ok(mut buf) = buffer.try_lock() {
+        if channels <= 1 {
+            buf.extend(
+                input
+                    .iter()
+                    .copied()
+                    .map(|sample| normalize_sample(f32::from_sample(sample))),
+            );
+            return;
+        }
+
+        for frame in input.chunks(channels) {
+            let sum: f32 = frame.iter().copied().map(f32::from_sample).sum();
+            buf.push(normalize_sample(sum / frame.len() as f32));
+        }
+    }
+}
+
+fn normalize_sample(sample: f32) -> i16 {
+    (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
 }
