@@ -12,6 +12,7 @@
   <a href="#features">Features</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#configuration">Configuration</a> &middot;
+  <a href="#why-free">Why Free?</a> &middot;
   <a href="#contributing">Contributing</a> &middot;
   <a href="#roadmap">Roadmap</a>
 </p>
@@ -129,6 +130,21 @@ talx/
 - [x] Model selection per provider
 - [ ] Voice activity detection
 - [ ] Windows and Linux support
+
+## Why free?
+
+Talx uses Groq's free API tier for both transcription and LLM polishing. Here's how that compares to Wispr Flow, the leading commercial alternative:
+
+| | Wispr Flow Free | Wispr Flow Pro | Talx (Groq free tier) |
+|---|---|---|---|
+| **Cost** | $0 | $12–15/mo | $0 |
+| **Daily word budget** | ~285 words (2K/week) | Unlimited | ~72,000 words (8 hrs audio) |
+| **Weekly words** | 2,000 | Unlimited | ~504,000 |
+| **Streaming transcription** | Yes | Yes | Batch only (streaming via Soniox, paid) |
+| **AI polishing** | Pro only | Yes | Yes |
+| **Open source** | No | No | Yes |
+
+Groq's free tier provides 8 hours of audio transcription per day (28,800 seconds) and 1,000 LLM polishing calls — roughly **250x the capacity** of Wispr Flow's free plan. The only trade-off is per-minute rate limits (20 STT requests/min) which don't affect normal dictation.
 
 ## Contributing
 
