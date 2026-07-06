@@ -5,7 +5,7 @@
 <h1 align="center">Talx</h1>
 
 <p align="center">
-  <strong>Open-source voice-to-text dictation for macOS. Speak anywhere, get polished text.</strong>
+  <strong>Open-source voice-to-text dictation for macOS & Windows. Speak anywhere, get polished text.</strong>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 ---
 
-Talx is a floating dictation widget for macOS. Hold a hotkey, speak, and it transcribes your speech, polishes it with an LLM, and pastes the result into whatever app you're using. You bring your own API keys — nothing is routed through our servers.
+Talx is a floating dictation widget for macOS & Windows. Hold a hotkey, speak, and it transcribes your speech, polishes it with an LLM, and pastes the result into whatever app you're using. You bring your own API keys — nothing is routed through our servers.
 
 ## Features
 
@@ -29,9 +29,12 @@ Talx is a floating dictation widget for macOS. Hold a hotkey, speak, and it tran
 - **Two ASR providers** — Groq Whisper (free, batch) or Soniox (paid, streaming)
 - **Two LLM providers** — Groq (free) or OpenAI (paid)
 - **Model selection** — choose specific models per provider
+- **Voice privacy** — pitch-shifts audio (+4 semitones) before cloud upload so your real voice never leaves your machine
+- **Mouse button hotkey** (Windows) — trigger recording with a mouse side button or middle click
 - **Session history** — transcriptions saved locally in SQLite
+- **Dashboard quit button** — fully exit Talx from the dashboard sidebar
 - **Dashboard** — usage stats and recent transcriptions
-- **Configurable hotkey** — default `⌥ Space`, customizable in settings
+- **Configurable hotkey** — default `⌥ Space` (macOS) / `Ctrl+Shift+Space` (Windows), customizable in settings
 
 ## How it works
 
@@ -41,7 +44,7 @@ Talx is a floating dictation widget for macOS. Hold a hotkey, speak, and it tran
   Hold ⌥Space                                                                                           Release ⌥Space
 ```
 
-1. **Hold** the hotkey (default: `⌥ Space`)
+1. **Hold** the hotkey (macOS: `⌥ Space`, Windows: `Ctrl+Shift+Space`)
 2. **Speak** — the floating widget shows your transcript
 3. **Release** — the LLM cleans up the transcript
 4. **Done** — polished text is auto-pasted into the active app
@@ -60,17 +63,27 @@ Talx is a floating dictation widget for macOS. Hold a hotkey, speak, and it tran
 
 ## Prerequisites
 
-- macOS
+### macOS
+
 - [Rust](https://rustup.rs/)
 - [Node.js](https://nodejs.org/) 18+ and [pnpm](https://pnpm.io/)
-- At least one set of API keys:
-  - **Free**: [Groq API key](https://console.groq.com/) — handles both ASR and LLM
-  - **Streaming**: [Soniox API key](https://console.soniox.com/) — real-time transcription
-  - **Paid LLM**: [OpenAI API key](https://platform.openai.com/) — alternative polishing
+- Xcode CLI tools:
 
 ```bash
-xcode-select --install  # if you don't have Xcode CLI tools
+xcode-select --install
 ```
+
+### Windows
+
+- [Rust](https://rustup.rs/)
+- [Node.js](https://nodejs.org/) 18+ and [pnpm](https://pnpm.io/)
+- [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) with "Desktop development with C++" workload
+
+At least one set of API keys:
+
+- **Free**: [Groq API key](https://console.groq.com/) — handles both ASR and LLM
+- **Streaming**: [Soniox API key](https://console.soniox.com/) — real-time transcription
+- **Paid LLM**: [OpenAI API key](https://platform.openai.com/) — alternative polishing
 
 ## Quick start
 
@@ -83,17 +96,27 @@ pnpm tauri dev
 
 On first launch, open settings to enter your API keys. They're stored in a local SQLite database.
 
+### Building a standalone desktop app
+
+```bash
+pnpm tauri build
+```
+
+This produces a standalone `.exe` (Windows) or `.app` (macOS) in `src-tauri/target/release/` — no terminal or dev tools needed to run it. An installer is also generated at `src-tauri/target/release/bundle/`.
+
 ## Configuration
 
 All settings are configurable through the settings UI:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Hotkey | `⌥ Space` | Hold to record, release to process |
+| Hotkey | `⌥ Space` (macOS) / `Ctrl+Shift+Space` (Windows) | Hold to record, release to process |
+| Mouse hotkey | None (Windows only) | Mouse side button or middle click to record |
 | ASR provider | Groq | Groq (batch) or Soniox (streaming) |
 | LLM provider | Groq | Groq or OpenAI |
 | ASR/LLM model | Provider default | Selectable per provider |
 | Auto-paste | On | Paste polished text into active app |
+| Voice privacy | On | Pitch-shift audio +4 semitones before cloud upload |
 
 ## Project structure
 
@@ -115,6 +138,8 @@ talx/
 │   │   ├── lib.rs                # Tauri commands, app state, hotkeys
 │   │   ├── audio.rs              # cpal-based microphone capture
 │   │   ├── db.rs                 # SQLite (transcriptions + settings)
+│   │   ├── pitch_shift.rs        # Phase vocoder for voice privacy
+│   │   ├── mouse_hook.rs         # Low-level mouse hook (Windows)
 │   │   ├── asr/                  # Groq Whisper, Soniox WebSocket
 │   │   └── llm/                  # Groq LLM, OpenAI
 │   └── tauri.conf.json
@@ -129,7 +154,7 @@ talx/
 - [x] Dashboard with usage stats and recent transcriptions
 - [x] Model selection per provider
 - [ ] Voice activity detection
-- [ ] Windows and Linux support
+- [x] Windows support
 
 ## Why free?
 
@@ -156,6 +181,7 @@ So I built an alternative that technically has no limit for an individual user. 
 
 - API keys stored locally in SQLite on your machine
 - Audio sent directly to the ASR provider you choose
+- Voice privacy mode pitch-shifts audio (+4 semitones) before upload so your real voice never leaves your machine (enabled by default)
 - Transcripts stored locally only
 - No telemetry, no analytics
 

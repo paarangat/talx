@@ -15,6 +15,8 @@ import {
   LANGUAGE_KEY,
   LLM_MODEL_KEY,
   LLM_PROVIDER_KEY,
+  MOUSE_BUTTON_KEY,
+  PITCH_SHIFT_ENABLED_KEY,
 } from "../../lib/settings";
 
 export const GeneralTab = () => {
@@ -30,6 +32,13 @@ export const GeneralTab = () => {
     return localStorage.getItem(HOTKEY_KEY) ?? DEFAULT_HOTKEY;
   });
   const [recordingHotkey, setRecordingHotkey] = useState(false);
+  const [mouseButton, setMouseButton] = useState(() => {
+    return localStorage.getItem(MOUSE_BUTTON_KEY) ?? "";
+  });
+  const [pitchShiftEnabled, setPitchShiftEnabled] = useState(() => {
+    const stored = localStorage.getItem(PITCH_SHIFT_ENABLED_KEY);
+    return stored !== null ? stored === "true" : true;
+  });
   const [asrProvider, setAsrProvider] = useState(() => {
     return localStorage.getItem(ASR_PROVIDER_KEY) ?? DEFAULT_ASR_PROVIDER;
   });
@@ -72,6 +81,17 @@ export const GeneralTab = () => {
       console.error("Failed to set LLM model:", err);
     });
   }, [llmModel]);
+
+  useEffect(() => {
+    invoke<boolean>("get_pitch_shift")
+      .then((enabled) => {
+        setPitchShiftEnabled(enabled);
+        localStorage.setItem(PITCH_SHIFT_ENABLED_KEY, String(enabled));
+      })
+      .catch((err: unknown) => {
+        console.error("Failed to load pitch shift setting:", err);
+      });
+  }, []);
 
   const fetchModels = (
     provider: string,
@@ -251,6 +271,41 @@ export const GeneralTab = () => {
         </div>
       </section>
 
+      {window.navigator.platform.toLowerCase().includes("win") && (
+        <section className="settings-tab__section">
+          <h3 className="settings-tab__section-header">Mouse Hotkey</h3>
+          <div className="settings-tab__row">
+            <div className="settings-tab__row-info">
+              <span className="settings-tab__label">Mouse button activation</span>
+              <span className="settings-tab__description">
+                Hold to dictate, release to stop
+              </span>
+            </div>
+            <div className="settings-tab__row-action">
+              <select
+                className="settings-select"
+                value={mouseButton}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setMouseButton(next);
+                  localStorage.setItem(MOUSE_BUTTON_KEY, next);
+                  invoke("set_mouse_hotkey", { button: next }).catch(
+                    (err: unknown) => {
+                      console.error("Failed to set mouse hotkey:", err);
+                    },
+                  );
+                }}
+              >
+                <option value="">None</option>
+                <option value="xbutton1">Back Button (side)</option>
+                <option value="xbutton2">Forward Button (side)</option>
+                <option value="middle">Middle Click (scroll wheel)</option>
+              </select>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Microphone</h3>
         <div className="settings-tab__row">
@@ -429,6 +484,31 @@ export const GeneralTab = () => {
             }}
             role="switch"
             aria-checked={autoPaste}
+          >
+            <div className="settings-toggle__knob" />
+          </button>
+        </div>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Voice Privacy</span>
+            <span className="settings-tab__description">
+              Pitch-shift audio +4 semitones (chipmunk) before sending to Groq
+            </span>
+          </div>
+          <button
+            className={`settings-toggle ${pitchShiftEnabled ? "settings-toggle--on" : ""}`}
+            onClick={() => {
+              const next = !pitchShiftEnabled;
+              setPitchShiftEnabled(next);
+              localStorage.setItem(PITCH_SHIFT_ENABLED_KEY, String(next));
+              invoke("set_pitch_shift", { enabled: next }).catch(
+                (err: unknown) => {
+                  console.error("Failed to set pitch shift:", err);
+                },
+              );
+            }}
+            role="switch"
+            aria-checked={pitchShiftEnabled}
           >
             <div className="settings-toggle__knob" />
           </button>

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 
@@ -65,6 +66,28 @@ export const DashboardSidebar = ({
           </li>
         ))}
       </ul>
+      <div className="dashboard__sidebar-spacer" />
+      <button
+        className="dashboard__quit-btn"
+        onClick={() => {
+          invoke("quit_app").catch((err: unknown) => {
+            console.error("Failed to quit:", err);
+          });
+        }}
+      >
+        <svg
+          className="dashboard__nav-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9" />
+        </svg>
+        <span>Quit Talx</span>
+      </button>
     </nav>
   );
 };

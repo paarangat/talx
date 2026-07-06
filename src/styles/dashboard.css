@@ -87,6 +87,35 @@
   flex-shrink: 0;
 }
 
+.dashboard__sidebar-spacer {
+  flex: 1;
+}
+
+.dashboard__quit-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 20px;
+  border: none;
+  border-left: 3px solid transparent;
+  background: none;
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-spring);
+  text-align: left;
+  margin-bottom: 12px;
+}
+
+.dashboard__quit-btn:hover {
+  color: var(--rec-red);
+  background: var(--bg-surface);
+  border-left-color: var(--rec-red);
+}
+
 /* ─── Content area ─── */
 .dashboard__content {
   flex: 1;

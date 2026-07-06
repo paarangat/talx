@@ -7,6 +7,10 @@ mod asr;
 mod audio;
 mod db;
 mod llm;
+mod pitch_shift;
+
+#[cfg(target_os = "windows")]
+mod mouse_hook;
 
 use tokio::sync::mpsc;
 
@@ -50,8 +54,16 @@ struct AppState {
     llm_openai_api_key: String,
     current_hotkey: String,
     db_conn: Connection,
+    pitch_shift_enabled: bool,
     key_down_time: Option<std::time::Instant>,
     hold_mode: bool,
+
+    #[cfg(target_os = "windows")]
+    mouse_hotkey_button: String,
+    #[cfg(target_os = "windows")]
+    mouse_hook: Option<mouse_hook::MouseHook>,
+    #[cfg(target_os = "windows")]
+    mouse_listener: Option<std::thread::JoinHandle<()>>,
 }
 
 fn default_hotkey() -> &'static str {
@@ -99,7 +111,20 @@ async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(),
                     .map_err(|e| format!("Key release error: {e}"))?;
             }
 
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
+            {
+                enigo
+                    .key(Key::Control, enigo::Direction::Press)
+                    .map_err(|e| format!("Key press error: {e}"))?;
+                enigo
+                    .key(Key::V, enigo::Direction::Click)
+                    .map_err(|e| format!("Key click error: {e}"))?;
+                enigo
+                    .key(Key::Control, enigo::Direction::Release)
+                    .map_err(|e| format!("Key release error: {e}"))?;
+            }
+
+            #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
             {
                 enigo
                     .key(Key::Control, enigo::Direction::Press)
@@ -295,6 +320,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     let sample_rate;
     let groq_key;
     let asr_model_val;
+    let pitch_shift_enabled;
 
     // Stop audio capture
     {
@@ -309,6 +335,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
         provider = app_state.asr_provider.clone();
         groq_key = app_state.groq_api_key.clone();
         asr_model_val = app_state.asr_model.clone();
+        pitch_shift_enabled = app_state.pitch_shift_enabled;
 
         let (s, sr) = app_state
             .audio_capture
@@ -326,8 +353,13 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
 
     match provider {
         asr::AsrProvider::Groq => {
+            let samples_for_groq = if pitch_shift_enabled {
+                pitch_shift::apply(&samples, sample_rate, 4.0)
+            } else {
+                samples
+            };
             tokio::spawn(async move {
-                match asr::groq::transcribe(&samples, sample_rate, &groq_key, &asr_model_val).await
+                match asr::groq::transcribe(&samples_for_groq, sample_rate, &groq_key, &asr_model_val).await
                 {
                     Ok(text) => {
                         let _ = app_handle.emit("transcription-result", &text);
@@ -723,6 +755,112 @@ fn get_hotkey(app: tauri::AppHandle) -> Result<String, String> {
     Ok(app_state.current_hotkey.clone())
 }
 
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn set_mouse_hotkey(app: tauri::AppHandle, button: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+
+    app_state.mouse_hotkey_button = button.clone();
+    if let Err(e) = db::set_setting(&app_state.db_conn, "mouse_button", &button) {
+        app_state.mouse_hotkey_button = String::new();
+        return Err(e.to_string());
+    }
+
+    // Stop old listener
+    if let Some(handle) = app_state.mouse_listener.take() {
+        let _ = handle.join();
+    }
+
+    // Stop old hook
+    app_state.mouse_hook = None;
+
+    if !button.is_empty() {
+        let btn = mouse_hook::parse_button(&button)?;
+        let (hook, rx) = mouse_hook::start(btn)?;
+
+        let app_handle = app.clone();
+        let handle = std::thread::Builder::new()
+            .name("mouse-listener".into())
+            .spawn(move || {
+                while let Ok(event) = rx.recv() {
+                    match event {
+                        mouse_hook::MouseButtonEvent::Pressed => {
+                            let h = app_handle.clone();
+                            let h_err = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = start_recording(h).await {
+                                    let _ = h_err.emit("recording-error", &e);
+                                }
+                            });
+                        }
+                        mouse_hook::MouseButtonEvent::Released => {
+                            let h = app_handle.clone();
+                            let h_err = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = stop_recording(h).await {
+                                    let _ = h_err.emit("recording-error", &e);
+                                }
+                            });
+                        }
+                    }
+                }
+            })
+            .map_err(|e| format!("Failed to spawn mouse listener: {e}"))?;
+
+        app_state.mouse_hook = Some(hook);
+        app_state.mouse_listener = Some(handle);
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn get_mouse_hotkey(app: tauri::AppHandle) -> Result<String, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state.mouse_hotkey_button.clone())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn set_mouse_hotkey(_app: tauri::AppHandle, _button: String) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn get_mouse_hotkey(_app: tauri::AppHandle) -> Result<String, String> {
+    Ok(String::new())
+}
+
+#[tauri::command]
+fn set_pitch_shift(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    app_state.pitch_shift_enabled = enabled;
+    db::set_setting(
+        &app_state.db_conn,
+        "pitch_shift_enabled",
+        if enabled { "1" } else { "0" },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_pitch_shift(app: tauri::AppHandle) -> Result<bool, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state.pitch_shift_enabled)
+}
+
+#[tauri::command]
+fn quit_app(_app: tauri::AppHandle) -> Result<(), String> {
+    std::process::exit(0);
+}
+
 #[tauri::command]
 fn dismiss_result(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
@@ -966,9 +1104,16 @@ pub fn run() {
                 llm_groq_api_key: String::new(),
                 llm_openai_api_key: String::new(),
                 current_hotkey: default_hotkey().to_string(),
+                pitch_shift_enabled: true,
                 db_conn,
                 key_down_time: None,
                 hold_mode: false,
+                #[cfg(target_os = "windows")]
+                mouse_hotkey_button: String::new(),
+                #[cfg(target_os = "windows")]
+                mouse_hook: None,
+                #[cfg(target_os = "windows")]
+                mouse_listener: None,
             }));
 
             // One-time migration: pull API keys from macOS Keychain (legacy keyring crate)
@@ -1045,6 +1190,82 @@ pub fn run() {
                                 "llm_groq" => app_state.llm_groq_api_key = key,
                                 "llm_openai" => app_state.llm_openai_api_key = key,
                                 _ => {}
+                            }
+                        }
+                    }
+                };
+            }
+
+            // Load pitch_shift_enabled from database
+            {
+                let state = app.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    if let Ok(Some(val)) =
+                        db::get_setting(&app_state.db_conn, "pitch_shift_enabled")
+                    {
+                        app_state.pitch_shift_enabled = val == "1";
+                    }
+                };
+            }
+
+            // Load mouse hotkey from database and start hook if configured
+            #[cfg(target_os = "windows")]
+            {
+                let state = app.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    if let Ok(Some(btn)) =
+                        db::get_setting(&app_state.db_conn, "mouse_button")
+                    {
+                        if !btn.is_empty() {
+                            app_state.mouse_hotkey_button = btn.clone();
+                            if let Ok(b) = mouse_hook::parse_button(&btn) {
+                                if let Ok((hook, rx)) = mouse_hook::start(b) {
+                                    let app_handle = app.handle().clone();
+                                    let handle = std::thread::Builder::new()
+                                        .name("mouse-listener".into())
+                                        .spawn(move || {
+                                            while let Ok(event) = rx.recv() {
+                                                match event {
+                                                    mouse_hook::MouseButtonEvent::Pressed => {
+                                                        let h = app_handle.clone();
+                                                        let h_err = app_handle.clone();
+                                                        tauri::async_runtime::spawn(
+                                                            async move {
+                                                                if let Err(e) =
+                                                                    start_recording(h).await
+                                                                {
+                                                                    let _ = h_err.emit(
+                                                                        "recording-error",
+                                                                        &e,
+                                                                    );
+                                                                }
+                                                            },
+                                                        );
+                                                    }
+                                                    mouse_hook::MouseButtonEvent::Released => {
+                                                        let h = app_handle.clone();
+                                                        let h_err = app_handle.clone();
+                                                        tauri::async_runtime::spawn(
+                                                            async move {
+                                                                if let Err(e) =
+                                                                    stop_recording(h).await
+                                                                {
+                                                                    let _ = h_err.emit(
+                                                                        "recording-error",
+                                                                        &e,
+                                                                    );
+                                                                }
+                                                            },
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    if let Ok(listener) = handle {
+                                        app_state.mouse_hook = Some(hook);
+                                        app_state.mouse_listener = Some(listener);
+                                    }
+                                }
                             }
                         }
                     }
@@ -1136,6 +1357,11 @@ pub fn run() {
             test_api_key,
             set_hotkey,
             get_hotkey,
+            set_mouse_hotkey,
+            get_mouse_hotkey,
+            set_pitch_shift,
+            get_pitch_shift,
+            quit_app,
             dismiss_result,
             polish_transcript,
             save_transcription,

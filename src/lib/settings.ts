@@ -20,3 +20,6 @@ const platformInfo =
 export const DEFAULT_HOTKEY = platformInfo.includes("windows")
   ? "ctrl+shift+space"
   : "alt+space";
+
+export const MOUSE_BUTTON_KEY = "talx:mouse-button";
+export const PITCH_SHIFT_ENABLED_KEY = "talx:pitch-shift-enabled";
