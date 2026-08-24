@@ -54,6 +54,9 @@ struct AppState {
     hold_mode: bool,
 }
 
+/// Settings-table key for the chosen input device name. Empty/absent = system default.
+const INPUT_DEVICE_KEY: &str = "talx:input-device";
+
 fn default_hotkey() -> &'static str {
     #[cfg(target_os = "windows")]
     {
@@ -203,6 +206,7 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
     let provider;
     let soniox_key;
     let asr_model_val;
+    let mic_notice;
 
     // Check state and start audio capture
     {
@@ -235,8 +239,15 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
             }
         }
 
+        // A failed settings read means "system default", never a failed recording.
+        let preferred = db::get_setting(&app_state.db_conn, INPUT_DEVICE_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
         let mut capture = audio::AudioCapture::new()?;
-        let buffer = capture.start()?;
+        let (buffer, notice) = capture.start(&preferred)?;
+        mic_notice = notice;
         app_state.audio_buffer = Some(buffer);
         app_state.audio_capture = SendableCapture(Some(capture));
         app_state.recording_status = RecordingStatus::Recording;
@@ -283,9 +294,31 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
         });
     }
 
-    app.emit("recording-started", ())
+    // Payload carries an optional mic-fallback notice; existing listeners ignore it.
+    app.emit("recording-started", &mic_notice)
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+fn list_input_devices() -> Result<Vec<audio::InputDevice>, String> {
+    audio::list_input_devices()
+}
+
+#[tauri::command]
+fn get_input_device(app: tauri::AppHandle) -> Result<String, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(db::get_setting(&app_state.db_conn, INPUT_DEVICE_KEY)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+fn set_input_device(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::set_setting(&app_state.db_conn, INPUT_DEVICE_KEY, &name).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1125,6 +1158,9 @@ pub fn run() {
             update_tray_words,
             start_recording,
             stop_recording,
+            list_input_devices,
+            get_input_device,
+            set_input_device,
             set_asr_provider,
             set_llm_provider,
             set_asr_model,

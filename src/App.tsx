@@ -130,7 +130,7 @@ export const App = () => {
   // Listen for Tauri events from Rust backend
   useEffect(() => {
     const unlisteners = [
-      listen("recording-started", () => {
+      listen<string | null>("recording-started", (event) => {
         // Cancel any pending success timeout
         clearSuccessTimeout();
 
@@ -139,6 +139,11 @@ export const App = () => {
         setTimer("0:00");
         setError(null);
         polishGenRef.current += 1;
+
+        // Payload is set when the chosen mic was missing and we fell back to the default.
+        if (event.payload) {
+          showError(event.payload);
+        }
 
         timerRef.current = setInterval(() => {
           secondsRef.current += 1;

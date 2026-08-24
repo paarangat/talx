@@ -17,6 +17,11 @@ import {
   LLM_PROVIDER_KEY,
 } from "../../lib/settings";
 
+type InputDevice = {
+  name: string;
+  is_default: boolean;
+};
+
 export const GeneralTab = () => {
   const { error, isProcessing, isRecording, toggleRecording } = useRecordingControl();
   const [autoPaste, setAutoPaste] = useState(() => {
@@ -42,12 +47,47 @@ export const GeneralTab = () => {
   const [llmModel, setLlmModel] = useState(() => {
     return localStorage.getItem(LLM_MODEL_KEY) ?? DEFAULT_LLM_MODEL;
   });
+  const [inputDevices, setInputDevices] = useState<InputDevice[]>([]);
+  const [inputDevice, setInputDevice] = useState("");
   const [asrModels, setAsrModels] = useState<string[]>([]);
   const [llmModels, setLlmModels] = useState<string[]>([]);
   const [asrModelsLoading, setAsrModelsLoading] = useState(false);
   const [llmModelsLoading, setLlmModelsLoading] = useState(false);
   const [asrCustom, setAsrCustom] = useState(false);
   const [llmCustom, setLlmCustom] = useState(false);
+
+  // Devices come and go with the hardware, so re-read the list every time this tab mounts.
+  useEffect(() => {
+    invoke<InputDevice[]>("list_input_devices")
+      .then(setInputDevices)
+      .catch((err: unknown) => {
+        console.error("Failed to list input devices:", err);
+        setInputDevices([]);
+      });
+
+    invoke<string>("get_input_device")
+      .then(setInputDevice)
+      .catch((err: unknown) => {
+        console.error("Failed to read the selected input device:", err);
+      });
+  }, []);
+
+  // inputDevices.length check keeps the warning from flashing while the list loads.
+  const deviceMissing =
+    inputDevice !== "" &&
+    inputDevices.length > 0 &&
+    !inputDevices.some((device) => device.name === inputDevice);
+
+  const handleInputDeviceChange = (value: string) => {
+    if (value === "__missing__") {
+      return;
+    }
+
+    setInputDevice(value);
+    invoke("set_input_device", { name: value }).catch((err: unknown) => {
+      console.error("Failed to save the input device:", err);
+    });
+  };
 
   useEffect(() => {
     invoke("set_asr_provider", { provider: asrProvider }).catch((err: unknown) => {
@@ -253,6 +293,29 @@ export const GeneralTab = () => {
 
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Microphone</h3>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Input device</span>
+            <span className="settings-tab__description">
+              {deviceMissing
+                ? `"${inputDevice}" is not connected — recording falls back to the system default`
+                : "Microphone used for dictation"}
+            </span>
+          </div>
+          <select
+            className="settings-select"
+            value={deviceMissing ? "__missing__" : inputDevice}
+            onChange={(event) => handleInputDeviceChange(event.target.value)}
+          >
+            <option value="">System default</option>
+            {inputDevices.map((device) => (
+              <option key={device.name} value={device.name}>
+                {device.is_default ? `${device.name} (default)` : device.name}
+              </option>
+            ))}
+            {deviceMissing && <option value="__missing__">{inputDevice} (not connected)</option>}
+          </select>
+        </div>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Recording test</span>
