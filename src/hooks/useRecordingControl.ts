@@ -41,10 +41,11 @@ export const useRecordingControl = () => {
 
   useEffect(() => {
     const unlisteners = [
-      listen("recording-started", () => {
+      // Payload is set when the chosen mic was missing and we fell back to the default.
+      listen<string | null>("recording-started", (event) => {
         clearProcessingTimeout();
         setPhase("recording");
-        setError(null);
+        setError(event.payload ?? null);
       }),
       listen("transcription-result", () => {
         clearProcessingTimeout();
