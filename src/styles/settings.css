@@ -184,6 +184,43 @@
   text-align: right;
 }
 
+/* ─── Notice (missing permission, etc.) ─── */
+.settings-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(192, 80, 58, 0.35);
+  background: rgba(192, 80, 58, 0.06);
+}
+
+.settings-notice__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.settings-notice__title {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rec-red);
+}
+
+.settings-notice__text {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.settings-notice .settings-tab__btn-danger {
+  flex-shrink: 0;
+}
+
 /* ─── Hotkey badge ─── */
 .settings-tab__hotkey-badge {
   font-family: var(--font-mono);

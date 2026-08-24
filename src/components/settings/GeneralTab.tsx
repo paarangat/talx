@@ -48,6 +48,34 @@ export const GeneralTab = () => {
   const [llmModelsLoading, setLlmModelsLoading] = useState(false);
   const [asrCustom, setAsrCustom] = useState(false);
   const [llmCustom, setLlmCustom] = useState(false);
+  // Assume granted until proven otherwise so the warning never flashes on load
+  // or on platforms that don't gate synthetic input.
+  const [accessibilityOk, setAccessibilityOk] = useState(true);
+  const [restoreClipboard, setRestoreClipboard] = useState(false);
+
+  useEffect(() => {
+    const check = () => {
+      invoke<boolean>("check_accessibility_permission")
+        .then(setAccessibilityOk)
+        .catch((err: unknown) => {
+          console.error("Failed to check accessibility permission:", err);
+        });
+    };
+
+    check();
+    // Granting the permission happens in System Settings, so re-check when the
+    // user comes back to clear the warning without a restart.
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, []);
+
+  useEffect(() => {
+    invoke<boolean>("get_restore_clipboard")
+      .then(setRestoreClipboard)
+      .catch((err: unknown) => {
+        console.error("Failed to read clipboard restore setting:", err);
+      });
+  }, []);
 
   useEffect(() => {
     invoke("set_asr_provider", { provider: asrProvider }).catch((err: unknown) => {
@@ -229,6 +257,32 @@ export const GeneralTab = () => {
   return (
     <div className="settings-tab">
       <h2 className="settings-tab__title">General</h2>
+
+      {!accessibilityOk && (
+        <section className="settings-tab__section">
+          <h3 className="settings-tab__section-header">Permissions</h3>
+          <div className="settings-notice" role="alert">
+            <div className="settings-notice__body">
+              <span className="settings-notice__title">Accessibility access is off</span>
+              <span className="settings-notice__text">
+                Talx cannot paste into other apps until you allow it under Privacy &amp;
+                Security &gt; Accessibility. Until then, dictated text is copied to your
+                clipboard so you can paste it with Cmd+V.
+              </span>
+            </div>
+            <button
+              className="settings-tab__btn-danger"
+              onClick={() => {
+                invoke("open_accessibility_settings").catch((err: unknown) => {
+                  console.error("Failed to open accessibility settings:", err);
+                });
+              }}
+            >
+              Open System Settings
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Hotkey</h3>
@@ -429,6 +483,30 @@ export const GeneralTab = () => {
             }}
             role="switch"
             aria-checked={autoPaste}
+          >
+            <div className="settings-toggle__knob" />
+          </button>
+        </div>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Restore clipboard after paste</span>
+            <span className="settings-tab__description">
+              Put back whatever you had copied, 0.8s after pasting. Experimental — some
+              apps read the clipboard slowly, and restoring too early can cancel the paste.
+            </span>
+          </div>
+          <button
+            className={`settings-toggle ${restoreClipboard ? "settings-toggle--on" : ""}`}
+            onClick={() => {
+              const next = !restoreClipboard;
+              setRestoreClipboard(next);
+              invoke("set_restore_clipboard", { enabled: next }).catch((err: unknown) => {
+                console.error("Failed to save clipboard restore setting:", err);
+                setRestoreClipboard(!next);
+              });
+            }}
+            role="switch"
+            aria-checked={restoreClipboard}
           >
             <div className="settings-toggle__knob" />
           </button>

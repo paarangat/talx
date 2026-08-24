@@ -24,6 +24,24 @@ export const getErrorMessage = (
   return fallback;
 };
 
+/**
+ * Machine-readable failure codes returned verbatim by `paste_to_focused_app`.
+ * All user-facing copy for them lives here, not in Rust.
+ */
+export const PASTE_ACCESSIBILITY_DENIED = "ACCESSIBILITY_DENIED";
+export const PASTE_CLIPBOARD_ONLY = "CLIPBOARD_ONLY";
+
+export const getPasteErrorMessage = (error: unknown): string => {
+  switch (getErrorMessage(error, "")) {
+    case PASTE_ACCESSIBILITY_DENIED:
+      return "Accessibility permission needed — copied, press ⌘V";
+    case PASTE_CLIPBOARD_ONLY:
+      return "Copied — press ⌘V to paste";
+    default:
+      return "Paste failed.";
+  }
+};
+
 export const reportUiError = (message: string) => {
   const nextMessage = message.trim();
   if (!nextMessage || messages.includes(nextMessage)) {
