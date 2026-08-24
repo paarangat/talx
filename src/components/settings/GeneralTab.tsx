@@ -55,6 +55,18 @@ export const GeneralTab = () => {
   const [llmModelsLoading, setLlmModelsLoading] = useState(false);
   const [asrCustom, setAsrCustom] = useState(false);
   const [llmCustom, setLlmCustom] = useState(false);
+  // Lives in the Rust settings table (the backend reads it at polish time),
+  // not localStorage. Default ON.
+  const [contextAware, setContextAware] = useState(true);
+
+  useEffect(() => {
+    invoke<boolean>("get_context_aware")
+      .then(setContextAware)
+      .catch((err: unknown) => {
+        console.error("Failed to load context-aware setting:", err);
+      });
+  }, []);
+
   // Assume granted until proven otherwise so the warning never flashes on load
   // or on platforms that don't gate synthetic input.
   const [accessibilityOk, setAccessibilityOk] = useState(true);
@@ -546,6 +558,30 @@ export const GeneralTab = () => {
             }}
             role="switch"
             aria-checked={autoPaste}
+          >
+            <div className="settings-toggle__knob" />
+          </button>
+        </div>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Context-aware polish</span>
+            <span className="settings-tab__description">
+              Match the polished text to the app you dictated into — bare commands in a
+              terminal, full sentences in email
+            </span>
+          </div>
+          <button
+            className={`settings-toggle ${contextAware ? "settings-toggle--on" : ""}`}
+            onClick={() => {
+              const next = !contextAware;
+              setContextAware(next);
+              invoke("set_context_aware", { enabled: next }).catch((err: unknown) => {
+                console.error("Failed to save context-aware setting:", err);
+                setContextAware(!next);
+              });
+            }}
+            role="switch"
+            aria-checked={contextAware}
           >
             <div className="settings-toggle__knob" />
           </button>

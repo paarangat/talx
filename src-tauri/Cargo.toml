@@ -32,3 +32,5 @@ enigo = "0.2"
 
 [target."cfg(target_os = \"macos\")".dependencies]
 cocoa = "0.26"
+# Already in the build graph via cocoa; declared so `msg_send!` is usable here.
+objc = "0.2"
