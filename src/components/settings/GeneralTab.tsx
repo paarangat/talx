@@ -17,6 +17,11 @@ import {
   LLM_PROVIDER_KEY,
 } from "../../lib/settings";
 
+type InputDevice = {
+  name: string;
+  is_default: boolean;
+};
+
 export const GeneralTab = () => {
   const { error, isProcessing, isRecording, toggleRecording } = useRecordingControl();
   const [autoPaste, setAutoPaste] = useState(() => {
@@ -42,12 +47,87 @@ export const GeneralTab = () => {
   const [llmModel, setLlmModel] = useState(() => {
     return localStorage.getItem(LLM_MODEL_KEY) ?? DEFAULT_LLM_MODEL;
   });
+  const [inputDevices, setInputDevices] = useState<InputDevice[]>([]);
+  const [inputDevice, setInputDevice] = useState("");
   const [asrModels, setAsrModels] = useState<string[]>([]);
   const [llmModels, setLlmModels] = useState<string[]>([]);
   const [asrModelsLoading, setAsrModelsLoading] = useState(false);
   const [llmModelsLoading, setLlmModelsLoading] = useState(false);
   const [asrCustom, setAsrCustom] = useState(false);
   const [llmCustom, setLlmCustom] = useState(false);
+  // Lives in the Rust settings table (the backend reads it at polish time),
+  // not localStorage. Default ON.
+  const [contextAware, setContextAware] = useState(true);
+
+  useEffect(() => {
+    invoke<boolean>("get_context_aware")
+      .then(setContextAware)
+      .catch((err: unknown) => {
+        console.error("Failed to load context-aware setting:", err);
+      });
+  }, []);
+
+  // Assume granted until proven otherwise so the warning never flashes on load
+  // or on platforms that don't gate synthetic input.
+  const [accessibilityOk, setAccessibilityOk] = useState(true);
+  const [restoreClipboard, setRestoreClipboard] = useState(false);
+
+  useEffect(() => {
+    const check = () => {
+      invoke<boolean>("check_accessibility_permission")
+        .then(setAccessibilityOk)
+        .catch((err: unknown) => {
+          console.error("Failed to check accessibility permission:", err);
+        });
+    };
+
+    check();
+    // Granting the permission happens in System Settings, so re-check when the
+    // user comes back to clear the warning without a restart.
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, []);
+
+  useEffect(() => {
+    invoke<boolean>("get_restore_clipboard")
+      .then(setRestoreClipboard)
+      .catch((err: unknown) => {
+        console.error("Failed to read clipboard restore setting:", err);
+      });
+  }, []);
+
+  // Devices come and go with the hardware, so re-read the list every time this tab mounts.
+  useEffect(() => {
+    invoke<InputDevice[]>("list_input_devices")
+      .then(setInputDevices)
+      .catch((err: unknown) => {
+        console.error("Failed to list input devices:", err);
+        setInputDevices([]);
+      });
+
+    invoke<string>("get_input_device")
+      .then(setInputDevice)
+      .catch((err: unknown) => {
+        console.error("Failed to read the selected input device:", err);
+      });
+  }, []);
+
+  // inputDevices.length check keeps the warning from flashing while the list loads.
+  const deviceMissing =
+    inputDevice !== "" &&
+    inputDevices.length > 0 &&
+    !inputDevices.some((device) => device.name === inputDevice);
+
+  const handleInputDeviceChange = (value: string) => {
+    if (value === "__missing__") {
+      return;
+    }
+
+    setInputDevice(value);
+    invoke("set_input_device", { name: value }).catch((err: unknown) => {
+      console.error("Failed to save the input device:", err);
+    });
+  };
 
   useEffect(() => {
     invoke("set_asr_provider", { provider: asrProvider }).catch((err: unknown) => {
@@ -230,6 +310,32 @@ export const GeneralTab = () => {
     <div className="settings-tab">
       <h2 className="settings-tab__title">General</h2>
 
+      {!accessibilityOk && (
+        <section className="settings-tab__section">
+          <h3 className="settings-tab__section-header">Permissions</h3>
+          <div className="settings-notice" role="alert">
+            <div className="settings-notice__body">
+              <span className="settings-notice__title">Accessibility access is off</span>
+              <span className="settings-notice__text">
+                Talx cannot paste into other apps until you allow it under Privacy &amp;
+                Security &gt; Accessibility. Until then, dictated text is copied to your
+                clipboard so you can paste it with Cmd+V.
+              </span>
+            </div>
+            <button
+              className="settings-tab__btn-danger"
+              onClick={() => {
+                invoke("open_accessibility_settings").catch((err: unknown) => {
+                  console.error("Failed to open accessibility settings:", err);
+                });
+              }}
+            >
+              Open System Settings
+            </button>
+          </div>
+        </section>
+      )}
+
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Hotkey</h3>
         <div className="settings-tab__row">
@@ -253,6 +359,29 @@ export const GeneralTab = () => {
 
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Microphone</h3>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Input device</span>
+            <span className="settings-tab__description">
+              {deviceMissing
+                ? `"${inputDevice}" is not connected — recording falls back to the system default`
+                : "Microphone used for dictation"}
+            </span>
+          </div>
+          <select
+            className="settings-select"
+            value={deviceMissing ? "__missing__" : inputDevice}
+            onChange={(event) => handleInputDeviceChange(event.target.value)}
+          >
+            <option value="">System default</option>
+            {inputDevices.map((device) => (
+              <option key={device.name} value={device.name}>
+                {device.is_default ? `${device.name} (default)` : device.name}
+              </option>
+            ))}
+            {deviceMissing && <option value="__missing__">{inputDevice} (not connected)</option>}
+          </select>
+        </div>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Recording test</span>
@@ -429,6 +558,54 @@ export const GeneralTab = () => {
             }}
             role="switch"
             aria-checked={autoPaste}
+          >
+            <div className="settings-toggle__knob" />
+          </button>
+        </div>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Context-aware polish</span>
+            <span className="settings-tab__description">
+              Match the polished text to the app you dictated into — bare commands in a
+              terminal, full sentences in email
+            </span>
+          </div>
+          <button
+            className={`settings-toggle ${contextAware ? "settings-toggle--on" : ""}`}
+            onClick={() => {
+              const next = !contextAware;
+              setContextAware(next);
+              invoke("set_context_aware", { enabled: next }).catch((err: unknown) => {
+                console.error("Failed to save context-aware setting:", err);
+                setContextAware(!next);
+              });
+            }}
+            role="switch"
+            aria-checked={contextAware}
+          >
+            <div className="settings-toggle__knob" />
+          </button>
+        </div>
+        <div className="settings-tab__row">
+          <div className="settings-tab__row-info">
+            <span className="settings-tab__label">Restore clipboard after paste</span>
+            <span className="settings-tab__description">
+              Put back whatever you had copied, 0.8s after pasting. Experimental — some
+              apps read the clipboard slowly, and restoring too early can cancel the paste.
+            </span>
+          </div>
+          <button
+            className={`settings-toggle ${restoreClipboard ? "settings-toggle--on" : ""}`}
+            onClick={() => {
+              const next = !restoreClipboard;
+              setRestoreClipboard(next);
+              invoke("set_restore_clipboard", { enabled: next }).catch((err: unknown) => {
+                console.error("Failed to save clipboard restore setting:", err);
+                setRestoreClipboard(!next);
+              });
+            }}
+            role="switch"
+            aria-checked={restoreClipboard}
           >
             <div className="settings-toggle__knob" />
           </button>

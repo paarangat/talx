@@ -1,4 +1,4 @@
-use super::{build_transcript_message, PolishResult, SYSTEM_PROMPT};
+use super::{build_transcript_message, PolishResult};
 use std::time::Instant;
 
 #[derive(serde::Serialize)]
@@ -31,7 +31,12 @@ struct ChatResponse {
     model: String,
 }
 
-pub async fn polish(text: &str, api_key: &str, model: &str) -> Result<PolishResult, String> {
+pub async fn polish(
+    text: &str,
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+) -> Result<PolishResult, String> {
     let start = Instant::now();
 
     let request = ChatRequest {
@@ -39,7 +44,7 @@ pub async fn polish(text: &str, api_key: &str, model: &str) -> Result<PolishResu
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: SYSTEM_PROMPT.to_string(),
+                content: system_prompt.to_string(),
             },
             ChatMessage {
                 role: "user".to_string(),

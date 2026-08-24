@@ -72,9 +72,27 @@ html, body, #root {
   animation: success-flash 1.5s ease both;
 }
 
-/* Error ring overlay */
+/* Error ring overlay — declared after the state widths so it wins the cascade */
 .widget--error {
+  width: 284px;
+  height: 28px;
+  background: var(--bg-idle);
   box-shadow: 0 0 0 2px var(--rec-red), 0 4px 20px rgba(192, 80, 58, 0.2);
+  animation: none;
+}
+
+.widget__error-text {
+  position: relative;
+  z-index: 1;
+  padding: 0 14px;
+  max-width: 100%;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--rec-red);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ─── Grain overlay ─── */

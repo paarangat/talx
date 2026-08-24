@@ -91,6 +91,52 @@ pub fn get(conn: &Connection, limit: u32, offset: u32) -> Result<Vec<Transcripti
     rows.collect()
 }
 
+/// Full-text-ish search over both the raw and the polished transcript.
+///
+/// The term is always passed as a bound parameter — never interpolated into the
+/// SQL. LIKE wildcards typed by the user are escaped so that a literal `%` does
+/// not silently match everything.
+pub fn search(conn: &Connection, query: &str, limit: u32) -> Result<Vec<TranscriptionRow>> {
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
+
+    let mut stmt = conn.prepare(
+        "SELECT id, created_at, original_text, polished_text, word_count, duration_secs
+         FROM transcriptions
+         WHERE original_text LIKE ?1 ESCAPE '\\'
+            OR polished_text LIKE ?1 ESCAPE '\\'
+         ORDER BY created_at DESC
+         LIMIT ?2",
+    )?;
+
+    let rows = stmt.query_map(params![pattern, limit], |row| {
+        Ok(TranscriptionRow {
+            id: row.get(0)?,
+            created_at: row.get(1)?,
+            original_text: row.get(2)?,
+            polished_text: row.get(3)?,
+            word_count: row.get::<_, u32>(4)?,
+            duration_secs: row.get::<_, u32>(5)?,
+        })
+    })?;
+
+    rows.collect()
+}
+
+/// Just the `created_at` values, newest first — enough to compute the streak
+/// without shipping every transcript over IPC. Day-bucketing happens on the
+/// frontend, where the local timezone (and its DST shifts) is known per row.
+pub fn get_timestamps(conn: &Connection, limit: u32) -> Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT created_at FROM transcriptions ORDER BY created_at DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit], |row| row.get::<_, i64>(0))?;
+    rows.collect()
+}
+
 pub fn delete(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM transcriptions WHERE id = ?1", params![id])?;
     Ok(())

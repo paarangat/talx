@@ -182,7 +182,7 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
-  margin-bottom: 28px;
+  margin-bottom: 10px;
 }
 
 .stat-card {
@@ -215,6 +215,15 @@
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.home-page__stats-note {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  margin: 0 0 28px;
+  max-width: 46ch;
 }
 
 /* ─── Home page sections ─── */
@@ -301,11 +310,83 @@
   margin-bottom: 28px;
 }
 
+.recent-transcriptions__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recent-transcriptions__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.recent-transcriptions__export {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: all 0.25s var(--ease-spring);
+}
+
+.recent-transcriptions__export:hover {
+  color: var(--accent);
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
+.recent-transcriptions__search {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: all 0.25s var(--ease-spring);
+}
+
+.recent-transcriptions__search::placeholder {
+  color: var(--text-tertiary);
+}
+
+.recent-transcriptions__search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.recent-transcriptions__export-ok {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--success);
+  margin: 10px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-transcriptions__export-error {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: #8f3422;
+  margin: 10px 0 0;
+  line-height: 1.45;
+}
+
 .recent-transcriptions__empty {
   font-family: var(--font-ui);
   font-size: 13px;
   color: var(--text-tertiary);
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .recent-transcriptions__list {

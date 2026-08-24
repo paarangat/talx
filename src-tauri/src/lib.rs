@@ -5,8 +5,12 @@ use tauri::Manager;
 
 mod asr;
 mod audio;
+mod context;
 mod db;
+mod dictionary;
+mod export;
 mod llm;
+mod permissions;
 
 use tokio::sync::mpsc;
 
@@ -49,10 +53,22 @@ struct AppState {
     llm_groq_api_key: String,
     llm_openai_api_key: String,
     current_hotkey: String,
+    dictionary: Vec<String>,
     db_conn: Connection,
     key_down_time: Option<std::time::Instant>,
     hold_mode: bool,
+    /// App the user was dictating into, captured at hotkey-down. Sticky: a
+    /// capture that lands on Talx itself leaves the previous value in place.
+    target_app: Option<context::TargetApp>,
+    context_aware: bool,
 }
+
+/// Settings-table key for the chosen input device name. Empty/absent = system default.
+const INPUT_DEVICE_KEY: &str = "talx:input-device";
+
+/// SQLite `settings` key for the context-aware polish toggle. Default is ON;
+/// only an explicit "false" turns it off.
+const CONTEXT_AWARE_KEY: &str = "talx:context-aware";
 
 fn default_hotkey() -> &'static str {
     #[cfg(target_os = "windows")]
@@ -66,61 +82,149 @@ fn default_hotkey() -> &'static str {
     }
 }
 
+/// Settings key for the (opt-in) clipboard restore. See `RESTORE_DELAY_MS`.
+const RESTORE_CLIPBOARD_KEY: &str = "talx:restore-clipboard";
+
+/// Machine-readable paste failures. The frontend matches these exactly and owns
+/// all user-facing copy — do not append prose to them.
+const ERR_ACCESSIBILITY: &str = "ACCESSIBILITY_DENIED";
+const ERR_CLIPBOARD_ONLY: &str = "CLIPBOARD_ONLY";
+
+// ponytail: 800ms is a guess, not a measurement. The target app reads the
+// clipboard asynchronously after Cmd+V, so restoring too early cancels the
+// paste. Worse: if Cmd+V returns Ok but silently no-ops (macOS does this when
+// Accessibility is revoked mid-session), the restore wipes our text too and the
+// transcript is lost entirely — no paste AND no clipboard. That is why
+// RESTORE_CLIPBOARD_KEY defaults to off. Unvalidated on real hardware.
+const RESTORE_DELAY_MS: u64 = 800;
+
+/// Puts `text` on the clipboard and sends Cmd+V (Ctrl+V off macOS), falling
+/// back to typing the text directly. Returns the previous clipboard text when
+/// the caller should restore it — only ever `Some` on a clean paste, because
+/// both fallbacks leave the text on the clipboard for the user.
 #[tauri::command]
 async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(), String> {
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    let restore_enabled = {
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|e| e.to_string())?;
+        let stored = db::get_setting(&app_state.db_conn, RESTORE_CLIPBOARD_KEY)
+            .ok()
+            .flatten();
+        stored.as_deref() == Some("true")
+    };
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>, String>>();
 
     app.run_on_main_thread(move || {
-        let result = (|| -> Result<(), String> {
+        let result = (|| -> Result<Option<String>, String> {
             use arboard::Clipboard;
             use enigo::{Enigo, Key, Keyboard, Settings};
 
             let mut clipboard = Clipboard::new().map_err(|e| format!("Clipboard error: {e}"))?;
+
+            // `get_text` errors on an empty or non-text clipboard — that is the
+            // common case, not a failure, and `None` means "skip the restore"
+            // so we never clobber an image or file the user had copied.
+            let previous = if restore_enabled {
+                clipboard.get_text().ok().filter(|t| !t.is_empty())
+            } else {
+                None
+            };
+
             clipboard
                 .set_text(&text)
                 .map_err(|e| format!("Failed to write clipboard: {e}"))?;
+
+            // Checked after the clipboard write so the transcript survives even
+            // though we can't paste it. Returning here drops `previous`, so no
+            // restore is scheduled — the user needs our text on the clipboard.
+            if !permissions::is_accessibility_trusted() {
+                return Err(ERR_ACCESSIBILITY.to_string());
+            }
 
             // Small delay for clipboard to settle (main thread is fine — only 50ms, no UI work)
             std::thread::sleep(std::time::Duration::from_millis(50));
 
             let mut enigo =
-                Enigo::new(&Settings::default()).map_err(|e| format!("Enigo error: {e}"))?;
+                Enigo::new(&Settings::default()).map_err(|_| ERR_CLIPBOARD_ONLY.to_string())?;
 
             #[cfg(target_os = "macos")]
-            {
-                enigo
-                    .key(Key::Meta, enigo::Direction::Press)
-                    .map_err(|e| format!("Key press error: {e}"))?;
-                enigo
-                    .key(Key::Unicode('v'), enigo::Direction::Click)
-                    .map_err(|e| format!("Key click error: {e}"))?;
-                enigo
-                    .key(Key::Meta, enigo::Direction::Release)
-                    .map_err(|e| format!("Key release error: {e}"))?;
-            }
-
+            let modifier = Key::Meta;
             #[cfg(not(target_os = "macos"))]
-            {
-                enigo
-                    .key(Key::Control, enigo::Direction::Press)
-                    .map_err(|e| format!("Key press error: {e}"))?;
-                enigo
-                    .key(Key::Unicode('v'), enigo::Direction::Click)
-                    .map_err(|e| format!("Key click error: {e}"))?;
-                enigo
-                    .key(Key::Control, enigo::Direction::Release)
-                    .map_err(|e| format!("Key release error: {e}"))?;
+            let modifier = Key::Control;
+
+            let pasted = (|| -> Result<(), enigo::InputError> {
+                enigo.key(modifier, enigo::Direction::Press)?;
+                let click = enigo.key(Key::Unicode('v'), enigo::Direction::Click);
+                // Release the modifier even if the click failed, or it stays
+                // stuck down for every later keystroke.
+                let release = enigo.key(modifier, enigo::Direction::Release);
+                click.and(release)
+            })();
+
+            if pasted.is_ok() {
+                return Ok(previous);
             }
 
-            Ok(())
+            // Fallback: type the text directly. Slower, but works where
+            // synthetic paste does not. The text stays on the clipboard, so
+            // never restore from here on.
+            enigo
+                .text(&text)
+                .map(|()| None)
+                .map_err(|_| ERR_CLIPBOARD_ONLY.to_string())
         })();
 
         let _ = tx.send(result);
     })
     .map_err(|e| format!("Failed to schedule on main thread: {e}"))?;
 
-    rx.await
-        .map_err(|_| "Main thread task was dropped".to_string())?
+    let previous = rx
+        .await
+        .map_err(|_| "Main thread task was dropped".to_string())??;
+
+    if let Some(previous) = previous {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(RESTORE_DELAY_MS)).await;
+            let _ = handle.run_on_main_thread(move || {
+                let _ = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(previous));
+            });
+        });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn check_accessibility_permission() -> Result<bool, String> {
+    Ok(permissions::is_accessibility_trusted())
+}
+
+#[tauri::command]
+fn open_accessibility_settings() -> Result<(), String> {
+    permissions::open_accessibility_settings()
+}
+
+#[tauri::command]
+fn get_restore_clipboard(app: tauri::AppHandle) -> Result<bool, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    let value =
+        db::get_setting(&app_state.db_conn, RESTORE_CLIPBOARD_KEY).map_err(|e| e.to_string())?;
+    Ok(value.as_deref() == Some("true"))
+}
+
+#[tauri::command]
+fn set_restore_clipboard(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::set_setting(
+        &app_state.db_conn,
+        RESTORE_CLIPBOARD_KEY,
+        if enabled { "true" } else { "false" },
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -203,6 +307,7 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
     let provider;
     let soniox_key;
     let asr_model_val;
+    let mic_notice;
 
     // Check state and start audio capture
     {
@@ -235,8 +340,15 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
             }
         }
 
+        // A failed settings read means "system default", never a failed recording.
+        let preferred = db::get_setting(&app_state.db_conn, INPUT_DEVICE_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
         let mut capture = audio::AudioCapture::new()?;
-        let buffer = capture.start()?;
+        let (buffer, notice) = capture.start(&preferred)?;
+        mic_notice = notice;
         app_state.audio_buffer = Some(buffer);
         app_state.audio_capture = SendableCapture(Some(capture));
         app_state.recording_status = RecordingStatus::Recording;
@@ -283,9 +395,31 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
         });
     }
 
-    app.emit("recording-started", ())
+    // Payload carries an optional mic-fallback notice; existing listeners ignore it.
+    app.emit("recording-started", &mic_notice)
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+fn list_input_devices() -> Result<Vec<audio::InputDevice>, String> {
+    audio::list_input_devices()
+}
+
+#[tauri::command]
+fn get_input_device(app: tauri::AppHandle) -> Result<String, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(db::get_setting(&app_state.db_conn, INPUT_DEVICE_KEY)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+fn set_input_device(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::set_setting(&app_state.db_conn, INPUT_DEVICE_KEY, &name).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -295,6 +429,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     let sample_rate;
     let groq_key;
     let asr_model_val;
+    let dictionary;
 
     // Stop audio capture
     {
@@ -309,6 +444,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
         provider = app_state.asr_provider.clone();
         groq_key = app_state.groq_api_key.clone();
         asr_model_val = app_state.asr_model.clone();
+        dictionary = app_state.dictionary.clone();
 
         let (s, sr) = app_state
             .audio_capture
@@ -327,7 +463,14 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     match provider {
         asr::AsrProvider::Groq => {
             tokio::spawn(async move {
-                match asr::groq::transcribe(&samples, sample_rate, &groq_key, &asr_model_val).await
+                match asr::groq::transcribe(
+                    &samples,
+                    sample_rate,
+                    &groq_key,
+                    &asr_model_val,
+                    &dictionary,
+                )
+                .await
                 {
                     Ok(text) => {
                         let _ = app_handle.emit("transcription-result", &text);
@@ -738,7 +881,7 @@ async fn polish_transcript(
     app: tauri::AppHandle,
     text: String,
 ) -> Result<llm::PolishResult, String> {
-    let (provider, api_key, llm_model) = {
+    let (provider, api_key, llm_model, dictionary, style_rule) = {
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|e| e.to_string())?;
 
@@ -762,14 +905,97 @@ async fn polish_transcript(
             }
         };
 
+        // Style rule for the app captured at hotkey-down, never the app that is
+        // frontmost right now (that could well be Talx).
+        let style_rule = match (app_state.context_aware, app_state.target_app.as_ref()) {
+            (true, Some(target)) => {
+                let (category, rule) = context::classify(&target.bundle_id);
+                println!(
+                    "[talx][context] polishing for bundle={} category={category} rule={}",
+                    target.bundle_id,
+                    if rule.is_some() { "applied" } else { "none" }
+                );
+                rule
+            }
+            (true, None) => {
+                println!("[talx][context] polishing with no captured target app");
+                None
+            }
+            (false, _) => {
+                println!("[talx][context] polishing with context-aware polish disabled");
+                None
+            }
+        };
+
         (
             app_state.llm_provider.clone(),
             key,
             app_state.llm_model.clone(),
+            app_state.dictionary.clone(),
+            style_rule,
         )
     };
 
-    llm::polish(&text, &provider, &api_key, &llm_model).await
+    llm::polish(&text, &provider, &api_key, &llm_model, &dictionary, style_rule).await
+}
+
+/// Reads the frontmost application and remembers it as the dictation target.
+///
+/// Must run at hotkey-down: by polish time Talx may be frontmost. A capture that
+/// yields nothing usable (no frontmost app, no bundle id, or Talx itself) leaves
+/// the previous target in place, so a hotkey pressed from inside Talx still
+/// polishes for wherever the user last dictated.
+fn capture_target_app(app: &tauri::AppHandle) {
+    let handle = app.clone();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+
+    // Cocoa accessors on the main thread, matching `paste_to_focused_app`.
+    let dispatched = app.run_on_main_thread(move || {
+        let own_bundle_id = handle.config().identifier.clone();
+        if let Some(target) = context::frontmost_app(&own_bundle_id) {
+            let state = handle.state::<Mutex<AppState>>();
+            // Bound to a local so the guard drops before `state` does.
+            let locked = state.lock();
+            if let Ok(mut app_state) = locked {
+                app_state.target_app = Some(target);
+            }
+        }
+        let _ = tx.send(());
+    });
+
+    // Wait for the capture to land before the caller starts recording. Tauri
+    // runs the closure inline when we are already on the main thread, so this
+    // returns immediately in the common case; when the hotkey handler is on
+    // another thread the closure is queued instead, and without this wait the
+    // capture would race the rest of the key-down path.
+    //
+    // ponytail: bounded wait, not a handshake — a main thread busy for >150ms
+    // loses the capture and polish falls back to the previous target, which
+    // beats stalling the hotkey.
+    if dispatched.is_ok() {
+        let _ = rx.recv_timeout(std::time::Duration::from_millis(150));
+    }
+}
+
+#[tauri::command]
+fn get_context_aware(app: tauri::AppHandle) -> Result<bool, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state.context_aware)
+}
+
+#[tauri::command]
+fn set_context_aware(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    db::set_setting(
+        &app_state.db_conn,
+        CONTEXT_AWARE_KEY,
+        if enabled { "true" } else { "false" },
+    )
+    .map_err(|e| e.to_string())?;
+    app_state.context_aware = enabled;
+    Ok(())
 }
 
 #[tauri::command]
@@ -804,6 +1030,43 @@ fn get_transcriptions(
 }
 
 #[tauri::command]
+fn search_transcriptions(
+    app: tauri::AppHandle,
+    query: String,
+    limit: u32,
+) -> Result<Vec<db::TranscriptionRow>, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::search(&app_state.db_conn, &query, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_transcription_timestamps(app: tauri::AppHandle, limit: u32) -> Result<Vec<i64>, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::get_timestamps(&app_state.db_conn, limit).map_err(|e| e.to_string())
+}
+
+/// Write the whole history to `path` as CSV or Markdown. The frontend picks the
+/// path with the save dialog, so this only serializes and writes.
+#[tauri::command]
+fn export_history(app: tauri::AppHandle, format: String, path: String) -> Result<(), String> {
+    let rows = {
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|e| e.to_string())?;
+        export::fetch_all(&app_state.db_conn).map_err(|e| e.to_string())?
+    };
+
+    let contents = match format.as_str() {
+        "csv" => export::to_csv(&rows),
+        "md" => export::to_markdown(&rows),
+        other => return Err(format!("Unsupported export format: {other}")),
+    };
+
+    std::fs::write(&path, contents).map_err(|e| format!("Failed to write {path}: {e}"))
+}
+
+#[tauri::command]
 fn delete_transcription(app: tauri::AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|e| e.to_string())?;
@@ -815,6 +1078,27 @@ fn clear_transcriptions(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|e| e.to_string())?;
     db::clear(&app_state.db_conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_dictionary(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state.dictionary.clone())
+}
+
+/// Replace the whole dictionary. Persists to SQLite and updates the in-memory
+/// copy so the next dictation picks it up without a restart.
+#[tauri::command]
+fn set_dictionary(app: tauri::AppHandle, terms: Vec<String>) -> Result<Vec<String>, String> {
+    let normalized = dictionary::normalize(&terms);
+
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    dictionary::save(&app_state.db_conn, &normalized)?;
+    app_state.dictionary = normalized.clone();
+
+    Ok(normalized)
 }
 
 #[tauri::command]
@@ -848,7 +1132,10 @@ fn register_hotkey(app: &tauri::AppHandle, shortcut: &str) -> Result<(), String>
                 match event.state {
                     ShortcutState::Pressed => {
                         if status == 0 {
-                            // Idle → start recording, record key-down time
+                            // Idle → start recording, record key-down time.
+                            // Capture the dictation target FIRST: this is the
+                            // last moment the user's app is guaranteed frontmost.
+                            capture_target_app(&app_handle);
                             if let Ok(mut app_state) = state.lock() {
                                 app_state.key_down_time = Some(std::time::Instant::now());
                                 app_state.hold_mode = false;
@@ -908,6 +1195,7 @@ fn register_hotkey(app: &tauri::AppHandle, shortcut: &str) -> Result<(), String>
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let status_item = tauri::menu::MenuItemBuilder::new("Status: Idle")
@@ -966,10 +1254,26 @@ pub fn run() {
                 llm_groq_api_key: String::new(),
                 llm_openai_api_key: String::new(),
                 current_hotkey: default_hotkey().to_string(),
+                dictionary: Vec::new(),
                 db_conn,
                 key_down_time: None,
                 hold_mode: false,
+                target_app: None,
+                context_aware: true,
             }));
+
+            // Context-aware polish: default ON, only an explicit "false" disables it.
+            {
+                let state = app.state::<Mutex<AppState>>();
+                // Bound to a local so the guard drops before `state` does.
+                let locked = state.lock();
+                if let Ok(mut app_state) = locked {
+                    let stored = db::get_setting(&app_state.db_conn, CONTEXT_AWARE_KEY)
+                        .ok()
+                        .flatten();
+                    app_state.context_aware = stored.as_deref() != Some("false");
+                }
+            }
 
             // One-time migration: pull API keys from macOS Keychain (legacy keyring crate)
             // into SQLite, then never run again.
@@ -1051,6 +1355,15 @@ pub fn run() {
                 };
             }
 
+            // Load the personal dictionary from the settings table
+            {
+                let state = app.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    let terms = dictionary::load(&app_state.db_conn);
+                    app_state.dictionary = terms;
+                };
+            }
+
             let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
             let _tray = tauri::tray::TrayIconBuilder::with_id("main-tray")
@@ -1119,12 +1432,19 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             paste_to_focused_app,
+            check_accessibility_permission,
+            open_accessibility_settings,
+            get_restore_clipboard,
+            set_restore_clipboard,
             resize_window,
             open_dashboard_window,
             update_tray_status,
             update_tray_words,
             start_recording,
             stop_recording,
+            list_input_devices,
+            get_input_device,
+            set_input_device,
             set_asr_provider,
             set_llm_provider,
             set_asr_model,
@@ -1140,9 +1460,16 @@ pub fn run() {
             polish_transcript,
             save_transcription,
             get_transcriptions,
+            search_transcriptions,
+            get_transcription_timestamps,
+            export_history,
             delete_transcription,
             clear_transcriptions,
-            get_today_stats
+            get_today_stats,
+            get_dictionary,
+            set_dictionary,
+            get_context_aware,
+            set_context_aware
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
