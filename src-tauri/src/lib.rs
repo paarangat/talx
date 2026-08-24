@@ -5,6 +5,7 @@ use tauri::Manager;
 
 mod asr;
 mod audio;
+mod context;
 mod db;
 mod llm;
 
@@ -52,7 +53,15 @@ struct AppState {
     db_conn: Connection,
     key_down_time: Option<std::time::Instant>,
     hold_mode: bool,
+    /// App the user was dictating into, captured at hotkey-down. Sticky: a
+    /// capture that lands on Talx itself leaves the previous value in place.
+    target_app: Option<context::TargetApp>,
+    context_aware: bool,
 }
+
+/// SQLite `settings` key for the context-aware polish toggle. Default is ON;
+/// only an explicit "false" turns it off.
+const CONTEXT_AWARE_KEY: &str = "talx:context-aware";
 
 fn default_hotkey() -> &'static str {
     #[cfg(target_os = "windows")]
@@ -738,7 +747,7 @@ async fn polish_transcript(
     app: tauri::AppHandle,
     text: String,
 ) -> Result<llm::PolishResult, String> {
-    let (provider, api_key, llm_model) = {
+    let (provider, api_key, llm_model, style_rule) = {
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|e| e.to_string())?;
 
@@ -762,14 +771,78 @@ async fn polish_transcript(
             }
         };
 
+        // Style rule for the app captured at hotkey-down, never the app that is
+        // frontmost right now (that could well be Talx).
+        let style_rule = match (app_state.context_aware, app_state.target_app.as_ref()) {
+            (true, Some(target)) => {
+                let (category, rule) = context::classify(&target.bundle_id);
+                println!(
+                    "[talx][context] polishing for bundle={} category={category} rule={}",
+                    target.bundle_id,
+                    if rule.is_some() { "applied" } else { "none" }
+                );
+                rule
+            }
+            (true, None) => {
+                println!("[talx][context] polishing with no captured target app");
+                None
+            }
+            (false, _) => {
+                println!("[talx][context] polishing with context-aware polish disabled");
+                None
+            }
+        };
+
         (
             app_state.llm_provider.clone(),
             key,
             app_state.llm_model.clone(),
+            style_rule,
         )
     };
 
-    llm::polish(&text, &provider, &api_key, &llm_model).await
+    llm::polish(&text, &provider, &api_key, &llm_model, style_rule).await
+}
+
+/// Reads the frontmost application and remembers it as the dictation target.
+///
+/// Must run at hotkey-down: by polish time Talx may be frontmost. A capture that
+/// yields nothing usable (no frontmost app, no bundle id, or Talx itself) leaves
+/// the previous target in place, so a hotkey pressed from inside Talx still
+/// polishes for wherever the user last dictated.
+fn capture_target_app(app: &tauri::AppHandle) {
+    let handle = app.clone();
+    // Cocoa accessors on the main thread, matching `paste_to_focused_app`.
+    let _ = app.run_on_main_thread(move || {
+        let own_bundle_id = handle.config().identifier.clone();
+        if let Some(target) = context::frontmost_app(&own_bundle_id) {
+            let state = handle.state::<Mutex<AppState>>();
+            if let Ok(mut app_state) = state.lock() {
+                app_state.target_app = Some(target);
+            }
+        }
+    });
+}
+
+#[tauri::command]
+fn get_context_aware(app: tauri::AppHandle) -> Result<bool, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state.context_aware)
+}
+
+#[tauri::command]
+fn set_context_aware(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    db::set_setting(
+        &app_state.db_conn,
+        CONTEXT_AWARE_KEY,
+        if enabled { "true" } else { "false" },
+    )
+    .map_err(|e| e.to_string())?;
+    app_state.context_aware = enabled;
+    Ok(())
 }
 
 #[tauri::command]
@@ -848,7 +921,10 @@ fn register_hotkey(app: &tauri::AppHandle, shortcut: &str) -> Result<(), String>
                 match event.state {
                     ShortcutState::Pressed => {
                         if status == 0 {
-                            // Idle → start recording, record key-down time
+                            // Idle → start recording, record key-down time.
+                            // Capture the dictation target FIRST: this is the
+                            // last moment the user's app is guaranteed frontmost.
+                            capture_target_app(&app_handle);
                             if let Ok(mut app_state) = state.lock() {
                                 app_state.key_down_time = Some(std::time::Instant::now());
                                 app_state.hold_mode = false;
@@ -969,7 +1045,20 @@ pub fn run() {
                 db_conn,
                 key_down_time: None,
                 hold_mode: false,
+                target_app: None,
+                context_aware: true,
             }));
+
+            // Context-aware polish: default ON, only an explicit "false" disables it.
+            {
+                let state = app.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    let stored = db::get_setting(&app_state.db_conn, CONTEXT_AWARE_KEY)
+                        .ok()
+                        .flatten();
+                    app_state.context_aware = stored.as_deref() != Some("false");
+                }
+            }
 
             // One-time migration: pull API keys from macOS Keychain (legacy keyring crate)
             // into SQLite, then never run again.
@@ -1142,7 +1231,9 @@ pub fn run() {
             get_transcriptions,
             delete_transcription,
             clear_transcriptions,
-            get_today_stats
+            get_today_stats,
+            get_context_aware,
+            set_context_aware
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
