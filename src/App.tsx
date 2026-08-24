@@ -4,7 +4,12 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { Widget } from "./components/Widget";
 import type { WidgetState } from "./components/Widget";
 import { AUTO_PASTE_KEY, DEFAULT_HOTKEY, HOTKEY_KEY } from "./lib/settings";
-import { subscribeToUiErrors } from "./lib/uiErrors";
+import {
+  getErrorMessage,
+  getPasteErrorMessage,
+  PASTE_ACCESSIBILITY_DENIED,
+  subscribeToUiErrors,
+} from "./lib/uiErrors";
 import { sessionStore } from "./stores/sessionStore";
 
 const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
@@ -13,6 +18,10 @@ const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
   polishing: { width: 120, height: 36 },
   success: { width: 120, height: 36 },
 };
+
+// Errors replace the pill contents with a message, so the window has to be
+// wide enough to read it regardless of which state we were in.
+const ERROR_SIZE = { width: 300, height: 36 };
 
 export const App = () => {
   const [state, setState] = useState<WidgetState>("idle");
@@ -33,7 +42,7 @@ export const App = () => {
 
   // Resize window on state change
   useEffect(() => {
-    const size = WINDOW_SIZES[state];
+    const size = error ? ERROR_SIZE : WINDOW_SIZES[state];
     const prevState = document.body.dataset.widgetState;
 
     // When shrinking (recording → polishing/idle), delay resize for CSS transition
@@ -55,7 +64,7 @@ export const App = () => {
     }
 
     document.body.dataset.widgetState = state;
-  }, [state]);
+  }, [state, error]);
 
   // Sync tray status
   useEffect(() => {
@@ -177,6 +186,18 @@ export const App = () => {
           if (localStorage.getItem(AUTO_PASTE_KEY) !== "false") {
             invoke("paste_to_focused_app", { text }).catch((err: unknown) => {
               console.error("Failed to paste to focused app:", err);
+              showError(getPasteErrorMessage(err));
+
+              // The permission can only be granted in System Settings, and the
+              // pill is too small to explain how — send the user to the panel
+              // in the dashboard that has the button.
+              if (getErrorMessage(err, "") === PASTE_ACCESSIBILITY_DENIED) {
+                invoke("open_dashboard_window", { section: "settings" }).catch(
+                  (openErr: unknown) => {
+                    console.error("Failed to open settings window:", openErr);
+                  },
+                );
+              }
             });
           }
 

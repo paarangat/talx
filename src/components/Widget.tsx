@@ -33,8 +33,12 @@ export const Widget = ({ state, timer, error }: WidgetProps) => {
       {/* Grain texture overlay */}
       <div className="widget__grain" />
 
+      {/* Error: message replaces the state content — the pill is too small
+          to show both, and the message is the actionable part. */}
+      {error && <span className="widget__error-text">{error}</span>}
+
       {/* Idle: logo pill */}
-      {state === "idle" && (
+      {!error && state === "idle" && (
         <div className="widget__logo">
           <div className="widget__logo-dot" />
           <span className="widget__logo-text">Talx</span>
@@ -42,7 +46,7 @@ export const Widget = ({ state, timer, error }: WidgetProps) => {
       )}
 
       {/* Recording: rec dot + waveform + timer */}
-      {state === "recording" && (
+      {!error && state === "recording" && (
         <div className="widget__recording">
           <div className="widget__rec-dot" />
           <div className="widget__waveform">
@@ -63,10 +67,10 @@ export const Widget = ({ state, timer, error }: WidgetProps) => {
       )}
 
       {/* Polishing: pulsing dot */}
-      {state === "polishing" && <div className="widget__pulse-dot" />}
+      {!error && state === "polishing" && <div className="widget__pulse-dot" />}
 
       {/* Success: sage checkmark */}
-      {state === "success" && (
+      {!error && state === "success" && (
         <div className="widget__check">
           <svg viewBox="0 0 12 12" fill="none">
             <path

@@ -7,6 +7,7 @@ mod asr;
 mod audio;
 mod db;
 mod llm;
+mod permissions;
 
 use tokio::sync::mpsc;
 
@@ -69,61 +70,149 @@ fn default_hotkey() -> &'static str {
     }
 }
 
+/// Settings key for the (opt-in) clipboard restore. See `RESTORE_DELAY_MS`.
+const RESTORE_CLIPBOARD_KEY: &str = "talx:restore-clipboard";
+
+/// Machine-readable paste failures. The frontend matches these exactly and owns
+/// all user-facing copy — do not append prose to them.
+const ERR_ACCESSIBILITY: &str = "ACCESSIBILITY_DENIED";
+const ERR_CLIPBOARD_ONLY: &str = "CLIPBOARD_ONLY";
+
+// ponytail: 800ms is a guess, not a measurement. The target app reads the
+// clipboard asynchronously after Cmd+V, so restoring too early cancels the
+// paste. Worse: if Cmd+V returns Ok but silently no-ops (macOS does this when
+// Accessibility is revoked mid-session), the restore wipes our text too and the
+// transcript is lost entirely — no paste AND no clipboard. That is why
+// RESTORE_CLIPBOARD_KEY defaults to off. Unvalidated on real hardware.
+const RESTORE_DELAY_MS: u64 = 800;
+
+/// Puts `text` on the clipboard and sends Cmd+V (Ctrl+V off macOS), falling
+/// back to typing the text directly. Returns the previous clipboard text when
+/// the caller should restore it — only ever `Some` on a clean paste, because
+/// both fallbacks leave the text on the clipboard for the user.
 #[tauri::command]
 async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(), String> {
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    let restore_enabled = {
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|e| e.to_string())?;
+        let stored = db::get_setting(&app_state.db_conn, RESTORE_CLIPBOARD_KEY)
+            .ok()
+            .flatten();
+        stored.as_deref() == Some("true")
+    };
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>, String>>();
 
     app.run_on_main_thread(move || {
-        let result = (|| -> Result<(), String> {
+        let result = (|| -> Result<Option<String>, String> {
             use arboard::Clipboard;
             use enigo::{Enigo, Key, Keyboard, Settings};
 
             let mut clipboard = Clipboard::new().map_err(|e| format!("Clipboard error: {e}"))?;
+
+            // `get_text` errors on an empty or non-text clipboard — that is the
+            // common case, not a failure, and `None` means "skip the restore"
+            // so we never clobber an image or file the user had copied.
+            let previous = if restore_enabled {
+                clipboard.get_text().ok().filter(|t| !t.is_empty())
+            } else {
+                None
+            };
+
             clipboard
                 .set_text(&text)
                 .map_err(|e| format!("Failed to write clipboard: {e}"))?;
+
+            // Checked after the clipboard write so the transcript survives even
+            // though we can't paste it. Returning here drops `previous`, so no
+            // restore is scheduled — the user needs our text on the clipboard.
+            if !permissions::is_accessibility_trusted() {
+                return Err(ERR_ACCESSIBILITY.to_string());
+            }
 
             // Small delay for clipboard to settle (main thread is fine — only 50ms, no UI work)
             std::thread::sleep(std::time::Duration::from_millis(50));
 
             let mut enigo =
-                Enigo::new(&Settings::default()).map_err(|e| format!("Enigo error: {e}"))?;
+                Enigo::new(&Settings::default()).map_err(|_| ERR_CLIPBOARD_ONLY.to_string())?;
 
             #[cfg(target_os = "macos")]
-            {
-                enigo
-                    .key(Key::Meta, enigo::Direction::Press)
-                    .map_err(|e| format!("Key press error: {e}"))?;
-                enigo
-                    .key(Key::Unicode('v'), enigo::Direction::Click)
-                    .map_err(|e| format!("Key click error: {e}"))?;
-                enigo
-                    .key(Key::Meta, enigo::Direction::Release)
-                    .map_err(|e| format!("Key release error: {e}"))?;
-            }
-
+            let modifier = Key::Meta;
             #[cfg(not(target_os = "macos"))]
-            {
-                enigo
-                    .key(Key::Control, enigo::Direction::Press)
-                    .map_err(|e| format!("Key press error: {e}"))?;
-                enigo
-                    .key(Key::Unicode('v'), enigo::Direction::Click)
-                    .map_err(|e| format!("Key click error: {e}"))?;
-                enigo
-                    .key(Key::Control, enigo::Direction::Release)
-                    .map_err(|e| format!("Key release error: {e}"))?;
+            let modifier = Key::Control;
+
+            let pasted = (|| -> Result<(), enigo::InputError> {
+                enigo.key(modifier, enigo::Direction::Press)?;
+                let click = enigo.key(Key::Unicode('v'), enigo::Direction::Click);
+                // Release the modifier even if the click failed, or it stays
+                // stuck down for every later keystroke.
+                let release = enigo.key(modifier, enigo::Direction::Release);
+                click.and(release)
+            })();
+
+            if pasted.is_ok() {
+                return Ok(previous);
             }
 
-            Ok(())
+            // Fallback: type the text directly. Slower, but works where
+            // synthetic paste does not. The text stays on the clipboard, so
+            // never restore from here on.
+            enigo
+                .text(&text)
+                .map(|()| None)
+                .map_err(|_| ERR_CLIPBOARD_ONLY.to_string())
         })();
 
         let _ = tx.send(result);
     })
     .map_err(|e| format!("Failed to schedule on main thread: {e}"))?;
 
-    rx.await
-        .map_err(|_| "Main thread task was dropped".to_string())?
+    let previous = rx
+        .await
+        .map_err(|_| "Main thread task was dropped".to_string())??;
+
+    if let Some(previous) = previous {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(RESTORE_DELAY_MS)).await;
+            let _ = handle.run_on_main_thread(move || {
+                let _ = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(previous));
+            });
+        });
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn check_accessibility_permission() -> Result<bool, String> {
+    Ok(permissions::is_accessibility_trusted())
+}
+
+#[tauri::command]
+fn open_accessibility_settings() -> Result<(), String> {
+    permissions::open_accessibility_settings()
+}
+
+#[tauri::command]
+fn get_restore_clipboard(app: tauri::AppHandle) -> Result<bool, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    let value =
+        db::get_setting(&app_state.db_conn, RESTORE_CLIPBOARD_KEY).map_err(|e| e.to_string())?;
+    Ok(value.as_deref() == Some("true"))
+}
+
+#[tauri::command]
+fn set_restore_clipboard(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::set_setting(
+        &app_state.db_conn,
+        RESTORE_CLIPBOARD_KEY,
+        if enabled { "true" } else { "false" },
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1152,6 +1241,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             paste_to_focused_app,
+            check_accessibility_permission,
+            open_accessibility_settings,
+            get_restore_clipboard,
+            set_restore_clipboard,
             resize_window,
             open_dashboard_window,
             update_tray_status,
