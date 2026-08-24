@@ -48,7 +48,7 @@ export const DictionaryTab = () => {
 
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Known terms</h3>
-        <p className="settings-tab__description">
+        <p className="dictionary__hint">
           Names, jargon and product terms Talx should spell correctly. Used to bias transcription
           and to lock spellings during polish.
         </p>

@@ -570,6 +570,14 @@
 }
 
 /* ─── Dictionary ─── */
+.dictionary__hint {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
 .dictionary__add {
   display: flex;
   align-items: center;
@@ -612,6 +620,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 14px 16px;
+  margin: 0;
 }
 
 .dictionary__list {

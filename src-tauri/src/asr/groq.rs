@@ -55,7 +55,7 @@ pub async fn transcribe(
 
     // Omit the field entirely when empty — an empty prompt is not the same as
     // no prompt for Whisper.
-    let prompt = crate::dictionary::joined(dictionary);
+    let prompt = crate::dictionary::joined(dictionary, crate::dictionary::WHISPER_BUDGET);
     if !prompt.is_empty() {
         form = form.text("prompt", prompt);
     }
