@@ -6,6 +6,7 @@ use tauri::Manager;
 mod asr;
 mod audio;
 mod db;
+mod dictionary;
 mod llm;
 
 use tokio::sync::mpsc;
@@ -49,6 +50,7 @@ struct AppState {
     llm_groq_api_key: String,
     llm_openai_api_key: String,
     current_hotkey: String,
+    dictionary: Vec<String>,
     db_conn: Connection,
     key_down_time: Option<std::time::Instant>,
     hold_mode: bool,
@@ -295,6 +297,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     let sample_rate;
     let groq_key;
     let asr_model_val;
+    let dictionary;
 
     // Stop audio capture
     {
@@ -309,6 +312,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
         provider = app_state.asr_provider.clone();
         groq_key = app_state.groq_api_key.clone();
         asr_model_val = app_state.asr_model.clone();
+        dictionary = app_state.dictionary.clone();
 
         let (s, sr) = app_state
             .audio_capture
@@ -327,7 +331,14 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     match provider {
         asr::AsrProvider::Groq => {
             tokio::spawn(async move {
-                match asr::groq::transcribe(&samples, sample_rate, &groq_key, &asr_model_val).await
+                match asr::groq::transcribe(
+                    &samples,
+                    sample_rate,
+                    &groq_key,
+                    &asr_model_val,
+                    &dictionary,
+                )
+                .await
                 {
                     Ok(text) => {
                         let _ = app_handle.emit("transcription-result", &text);
@@ -738,7 +749,7 @@ async fn polish_transcript(
     app: tauri::AppHandle,
     text: String,
 ) -> Result<llm::PolishResult, String> {
-    let (provider, api_key, llm_model) = {
+    let (provider, api_key, llm_model, dictionary) = {
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|e| e.to_string())?;
 
@@ -766,10 +777,11 @@ async fn polish_transcript(
             app_state.llm_provider.clone(),
             key,
             app_state.llm_model.clone(),
+            app_state.dictionary.clone(),
         )
     };
 
-    llm::polish(&text, &provider, &api_key, &llm_model).await
+    llm::polish(&text, &provider, &api_key, &llm_model, &dictionary).await
 }
 
 #[tauri::command]
@@ -815,6 +827,27 @@ fn clear_transcriptions(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|e| e.to_string())?;
     db::clear(&app_state.db_conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_dictionary(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state.dictionary.clone())
+}
+
+/// Replace the whole dictionary. Persists to SQLite and updates the in-memory
+/// copy so the next dictation picks it up without a restart.
+#[tauri::command]
+fn set_dictionary(app: tauri::AppHandle, terms: Vec<String>) -> Result<Vec<String>, String> {
+    let normalized = dictionary::normalize(&terms);
+
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    dictionary::save(&app_state.db_conn, &normalized)?;
+    app_state.dictionary = normalized.clone();
+
+    Ok(normalized)
 }
 
 #[tauri::command]
@@ -966,6 +999,7 @@ pub fn run() {
                 llm_groq_api_key: String::new(),
                 llm_openai_api_key: String::new(),
                 current_hotkey: default_hotkey().to_string(),
+                dictionary: Vec::new(),
                 db_conn,
                 key_down_time: None,
                 hold_mode: false,
@@ -1048,6 +1082,15 @@ pub fn run() {
                             }
                         }
                     }
+                };
+            }
+
+            // Load the personal dictionary from the settings table
+            {
+                let state = app.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    let terms = dictionary::load(&app_state.db_conn);
+                    app_state.dictionary = terms;
                 };
             }
 
@@ -1142,7 +1185,9 @@ pub fn run() {
             get_transcriptions,
             delete_transcription,
             clear_transcriptions,
-            get_today_stats
+            get_today_stats,
+            get_dictionary,
+            set_dictionary
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

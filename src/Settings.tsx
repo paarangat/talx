@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { GeneralTab } from "./components/settings/GeneralTab";
 import { ApiKeysTab } from "./components/settings/ApiKeysTab";
+import { DictionaryTab } from "./components/settings/DictionaryTab";
 import { AppearanceTab } from "./components/settings/AppearanceTab";
 import { AboutTab } from "./components/settings/AboutTab";
 
-type SettingsTab = "general" | "apikeys" | "appearance" | "about";
+type SettingsTab = "general" | "apikeys" | "dictionary" | "appearance" | "about";
 
 const tabs: Array<{ id: SettingsTab; label: string }> = [
   { id: "general", label: "General" },
   { id: "apikeys", label: "API Keys" },
+  { id: "dictionary", label: "Dictionary" },
   { id: "appearance", label: "Appearance" },
   { id: "about", label: "About" },
 ];
@@ -22,6 +24,8 @@ export const Settings = () => {
         return <GeneralTab />;
       case "apikeys":
         return <ApiKeysTab />;
+      case "dictionary":
+        return <DictionaryTab />;
       case "appearance":
         return <AppearanceTab />;
       case "about":

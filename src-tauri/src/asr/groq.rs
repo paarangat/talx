@@ -32,7 +32,16 @@ fn encode_wav(samples: &[i16], sample_rate: u32) -> Result<Vec<u8>, String> {
 }
 
 /// Send audio to Groq Whisper API and return the transcript text.
-pub async fn transcribe(samples: &[i16], sample_rate: u32, api_key: &str, model: &str) -> Result<String, String> {
+///
+/// `dictionary` holds the user's personal terms; they are sent as Whisper's
+/// `prompt` field, which biases decoding toward those spellings.
+pub async fn transcribe(
+    samples: &[i16],
+    sample_rate: u32,
+    api_key: &str,
+    model: &str,
+    dictionary: &[String],
+) -> Result<String, String> {
     let wav_bytes = encode_wav(samples, sample_rate)?;
 
     let part = reqwest::multipart::Part::bytes(wav_bytes)
@@ -40,9 +49,16 @@ pub async fn transcribe(samples: &[i16], sample_rate: u32, api_key: &str, model:
         .mime_str("audio/wav")
         .map_err(|e| format!("MIME error: {e}"))?;
 
-    let form = reqwest::multipart::Form::new()
+    let mut form = reqwest::multipart::Form::new()
         .part("file", part)
         .text("model", model.to_string());
+
+    // Omit the field entirely when empty — an empty prompt is not the same as
+    // no prompt for Whisper.
+    let prompt = crate::dictionary::joined(dictionary);
+    if !prompt.is_empty() {
+        form = form.text("prompt", prompt);
+    }
 
     let client = reqwest::Client::new();
     let response = client
