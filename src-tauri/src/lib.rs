@@ -6,6 +6,7 @@ use tauri::Manager;
 mod asr;
 mod audio;
 mod db;
+mod export;
 mod llm;
 
 use tokio::sync::mpsc;
@@ -804,6 +805,43 @@ fn get_transcriptions(
 }
 
 #[tauri::command]
+fn search_transcriptions(
+    app: tauri::AppHandle,
+    query: String,
+    limit: u32,
+) -> Result<Vec<db::TranscriptionRow>, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::search(&app_state.db_conn, &query, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_transcription_timestamps(app: tauri::AppHandle, limit: u32) -> Result<Vec<i64>, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    db::get_timestamps(&app_state.db_conn, limit).map_err(|e| e.to_string())
+}
+
+/// Write the whole history to `path` as CSV or Markdown. The frontend picks the
+/// path with the save dialog, so this only serializes and writes.
+#[tauri::command]
+fn export_history(app: tauri::AppHandle, format: String, path: String) -> Result<(), String> {
+    let rows = {
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|e| e.to_string())?;
+        export::fetch_all(&app_state.db_conn).map_err(|e| e.to_string())?
+    };
+
+    let contents = match format.as_str() {
+        "csv" => export::to_csv(&rows),
+        "md" => export::to_markdown(&rows),
+        other => return Err(format!("Unsupported export format: {other}")),
+    };
+
+    std::fs::write(&path, contents).map_err(|e| format!("Failed to write {path}: {e}"))
+}
+
+#[tauri::command]
 fn delete_transcription(app: tauri::AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|e| e.to_string())?;
@@ -908,6 +946,7 @@ fn register_hotkey(app: &tauri::AppHandle, shortcut: &str) -> Result<(), String>
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let status_item = tauri::menu::MenuItemBuilder::new("Status: Idle")
@@ -1140,6 +1179,9 @@ pub fn run() {
             polish_transcript,
             save_transcription,
             get_transcriptions,
+            search_transcriptions,
+            get_transcription_timestamps,
+            export_history,
             delete_transcription,
             clear_transcriptions,
             get_today_stats
