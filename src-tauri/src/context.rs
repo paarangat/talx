@@ -35,9 +35,13 @@ pub fn frontmost_app(own_bundle_id: &str) -> Option<TargetApp> {
     // (see `capture_target_app` in lib.rs).
     unsafe {
         // `Class::get` returns Option; the `class!` macro would panic instead.
-        let workspace_class = Class::get("NSWorkspace")?;
+        let Some(workspace_class) = Class::get("NSWorkspace") else {
+            println!("[talx][context] NSWorkspace class unavailable — no app context");
+            return None;
+        };
         let workspace: id = msg_send![workspace_class, sharedWorkspace];
         if workspace == nil {
+            println!("[talx][context] NSWorkspace sharedWorkspace was nil — no app context");
             return None;
         }
 
