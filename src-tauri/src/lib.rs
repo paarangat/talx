@@ -947,8 +947,10 @@ async fn polish_transcript(
 /// polishes for wherever the user last dictated.
 fn capture_target_app(app: &tauri::AppHandle) {
     let handle = app.clone();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+
     // Cocoa accessors on the main thread, matching `paste_to_focused_app`.
-    let _ = app.run_on_main_thread(move || {
+    let dispatched = app.run_on_main_thread(move || {
         let own_bundle_id = handle.config().identifier.clone();
         if let Some(target) = context::frontmost_app(&own_bundle_id) {
             let state = handle.state::<Mutex<AppState>>();
@@ -958,7 +960,21 @@ fn capture_target_app(app: &tauri::AppHandle) {
                 app_state.target_app = Some(target);
             }
         }
+        let _ = tx.send(());
     });
+
+    // Wait for the capture to land before the caller starts recording. Tauri
+    // runs the closure inline when we are already on the main thread, so this
+    // returns immediately in the common case; when the hotkey handler is on
+    // another thread the closure is queued instead, and without this wait the
+    // capture would race the rest of the key-down path.
+    //
+    // ponytail: bounded wait, not a handshake — a main thread busy for >150ms
+    // loses the capture and polish falls back to the previous target, which
+    // beats stalling the hotkey.
+    if dispatched.is_ok() {
+        let _ = rx.recv_timeout(std::time::Duration::from_millis(150));
+    }
 }
 
 #[tauri::command]
