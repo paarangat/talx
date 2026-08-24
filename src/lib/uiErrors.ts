@@ -34,7 +34,9 @@ export const PASTE_CLIPBOARD_ONLY = "CLIPBOARD_ONLY";
 export const getPasteErrorMessage = (error: unknown): string => {
   switch (getErrorMessage(error, "")) {
     case PASTE_ACCESSIBILITY_DENIED:
-      return "Accessibility permission needed — copied, press ⌘V";
+      // Kept short so it fits the pill; the settings window that opens
+      // alongside it carries the full explanation.
+      return "Permission needed — press ⌘V";
     case PASTE_CLIPBOARD_ONLY:
       return "Copied — press ⌘V to paste";
     default:

@@ -89,13 +89,6 @@ const RESTORE_DELAY_MS: u64 = 800;
 /// both fallbacks leave the text on the clipboard for the user.
 #[tauri::command]
 async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(), String> {
-    if !permissions::is_accessibility_trusted() {
-        // Still stash the transcript on the clipboard so it isn't lost, then
-        // report the missing permission. Never restore in this branch.
-        let _ = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&text));
-        return Err(ERR_ACCESSIBILITY.to_string());
-    }
-
     let restore_enabled = {
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|e| e.to_string())?;
@@ -126,6 +119,13 @@ async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(),
             clipboard
                 .set_text(&text)
                 .map_err(|e| format!("Failed to write clipboard: {e}"))?;
+
+            // Checked after the clipboard write so the transcript survives even
+            // though we can't paste it. Returning here drops `previous`, so no
+            // restore is scheduled — the user needs our text on the clipboard.
+            if !permissions::is_accessibility_trusted() {
+                return Err(ERR_ACCESSIBILITY.to_string());
+            }
 
             // Small delay for clipboard to settle (main thread is fine — only 50ms, no UI work)
             std::thread::sleep(std::time::Duration::from_millis(50));

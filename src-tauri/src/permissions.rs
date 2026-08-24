@@ -10,6 +10,7 @@ const ACCESSIBILITY_PANE: &str =
 
 #[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
+#[allow(non_snake_case)]
 extern "C" {
     // Returns a CoreFoundation `Boolean`, i.e. `unsigned char` — declared as
     // u8 because returning `bool` from FFI is UB for any value but 0 or 1.
