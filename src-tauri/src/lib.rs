@@ -61,6 +61,11 @@ struct AppState {
     /// capture that lands on Talx itself leaves the previous value in place.
     target_app: Option<context::TargetApp>,
     context_aware: bool,
+    /// Generation of the current dictation job. `cancel_dictation` bumps it;
+    /// the task `stop_recording` spawned compares against it before emitting,
+    /// so a transcription that lands after the user cancelled is dropped
+    /// instead of pasted. Same trick as `polishGenRef` in `App.tsx`.
+    job_gen: u64,
 }
 
 /// Settings-table key for the chosen input device name. Empty/absent = system default.
@@ -492,6 +497,54 @@ fn set_input_device(app: tauri::AppHandle, name: String) -> Result<(), String> {
     db::set_setting(&app_state.db_conn, INPUT_DEVICE_KEY, &name).map_err(|e| e.to_string())
 }
 
+/// Hand a finished transcription to the frontend, but only if the job that
+/// produced it is still the current one — a `cancel_dictation` in the meantime
+/// bumped `job_gen` and the result is dropped here rather than pasted into
+/// whatever app the user was dictating into.
+///
+/// The emit deliberately happens while the lock is held. Releasing it first
+/// would let a cancel slip in between the check and the emit, so the frontend
+/// would see `dictation-cancelled` *before* `transcription-result` — and the
+/// late result would start a fresh polish under the new generation and paste.
+fn finish_job(app: &tauri::AppHandle, gen: u64, event: &str, payload: &str) {
+    let state = app.state::<Mutex<AppState>>();
+    let Ok(mut app_state) = state.lock() else {
+        return;
+    };
+    if app_state.job_gen != gen {
+        return;
+    }
+    app_state.recording_status = RecordingStatus::Result;
+    let _ = app.emit(event, payload);
+}
+
+/// Abort an in-flight dictation and drop whatever it produces.
+///
+/// The spawned transcription task has no cancellation point inside its HTTP or
+/// WebSocket call, so it still runs to completion — bumping `job_gen` is what
+/// makes `finish_job` throw the result away, which is why nothing is pasted or
+/// saved. Recording is also a valid state to cancel from (the Esc key), so the
+/// capture and the streaming session are torn down here too.
+#[tauri::command]
+async fn cancel_dictation(app: tauri::AppHandle) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut app_state = state.lock().map_err(|e| e.to_string())?;
+        app_state.job_gen = app_state.job_gen.wrapping_add(1);
+        // Dropping the session closes the WebSocket. Usually already `None`:
+        // `stop_recording` takes it before spawning.
+        app_state.soniox_session = None;
+        // Dropping the capture stops the cpal stream. This runs on the async
+        // runtime (the command is `async`), which is the invariant
+        // `SendableCapture`'s unsafe impl relies on.
+        app_state.audio_capture = SendableCapture(None);
+        app_state.audio_buffer = None;
+        app_state.recording_status = RecordingStatus::Idle;
+    }
+    app.emit("dictation-cancelled", ())
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     let provider;
@@ -500,6 +553,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     let groq_key;
     let asr_model_val;
     let dictionary;
+    let gen;
 
     // Stop audio capture
     {
@@ -511,6 +565,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
         }
 
         app_state.recording_status = RecordingStatus::Transcribing;
+        gen = app_state.job_gen;
         provider = app_state.asr_provider.clone();
         groq_key = app_state.groq_api_key.clone();
         asr_model_val = app_state.asr_model.clone();
@@ -542,17 +597,9 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
                 )
                 .await
                 {
-                    Ok(text) => {
-                        let _ = app_handle.emit("transcription-result", &text);
-                    }
-                    Err(e) => {
-                        let _ = app_handle.emit("recording-error", &e);
-                    }
+                    Ok(text) => finish_job(&app_handle, gen, "transcription-result", &text),
+                    Err(e) => finish_job(&app_handle, gen, "recording-error", &e),
                 }
-                let state = app_handle.state::<Mutex<AppState>>();
-                if let Ok(mut app_state) = state.lock() {
-                    app_state.recording_status = RecordingStatus::Result;
-                };
             });
         }
         asr::AsrProvider::Soniox => {
@@ -565,18 +612,10 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
             tokio::spawn(async move {
                 if let Some(ref mut session) = session {
                     match session.stop().await {
-                        Ok(text) => {
-                            let _ = app_handle.emit("transcription-result", &text);
-                        }
-                        Err(e) => {
-                            let _ = app_handle.emit("recording-error", &e);
-                        }
+                        Ok(text) => finish_job(&app_handle, gen, "transcription-result", &text),
+                        Err(e) => finish_job(&app_handle, gen, "recording-error", &e),
                     }
                 }
-                let state = app_handle.state::<Mutex<AppState>>();
-                if let Ok(mut app_state) = state.lock() {
-                    app_state.recording_status = RecordingStatus::Result;
-                };
             });
         }
     }
@@ -1224,6 +1263,18 @@ fn register_hotkey(app: &tauri::AppHandle, shortcut: &str) -> Result<(), String>
                                     let _ = handle.emit("recording-error", &e);
                                 }
                             });
+                        } else if status == 2 {
+                            // Transcribing or polishing: the recording is already
+                            // committed, so a press here is the only escape hatch
+                            // before the transcript gets pasted. `status == 2` also
+                            // covers the post-paste result card — the frontend
+                            // decides whether to label that a cancel.
+                            let handle = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = cancel_dictation(handle.clone()).await {
+                                    let _ = handle.emit("recording-error", &e);
+                                }
+                            });
                         }
                     }
                     ShortcutState::Released => {
@@ -1330,6 +1381,7 @@ pub fn run() {
                 hold_mode: false,
                 target_app: None,
                 context_aware: true,
+                job_gen: 0,
             }));
 
             // Context-aware polish: default ON, only an explicit "false" disables it.
@@ -1529,6 +1581,7 @@ pub fn run() {
             set_hotkey,
             get_hotkey,
             dismiss_result,
+            cancel_dictation,
             polish_transcript,
             save_transcription,
             get_transcriptions,

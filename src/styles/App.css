@@ -98,6 +98,12 @@ html, body, #root {
   animation: enter 0.3s var(--ease-spring) both, nudge 0.4s var(--ease-spring) 0.1s;
 }
 
+/* Deliberately not `.widget--error`: cancelling is a choice, not a failure,
+   so no terracotta and no nudge — just the idle pill with a muted label. */
+.widget--cancelled {
+  width: 176px;
+}
+
 .widget--idle:hover {
   border-color: var(--hairline-strong);
   box-shadow:
@@ -191,6 +197,22 @@ html, body, #root {
   overflow: hidden;
   text-overflow: ellipsis;
   padding-right: 8px;
+}
+
+/* ═══ Cancelled notice ═══ */
+.widget__notice-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+.widget__notice-text {
+  font-size: var(--fs-sm);
+  line-height: 1;
+  color: var(--ink-soft);
+  white-space: nowrap;
 }
 
 /* ═══ Card layout ═══ */

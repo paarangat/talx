@@ -29,6 +29,7 @@ const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
   recording: sized(300, 122),
   polishing: sized(300, 122),
   success: sized(300, 148),
+  cancelled: sized(176, 38),
 };
 
 /** The card grows a transcript pane the first time a partial streams in.
@@ -46,6 +47,9 @@ const ERROR_SIZE = sized(300, 38);
 const RESULT_MS = 2600;
 /** Longer when a Copy button is the only route to the text. */
 const RESULT_WITH_COPY_MS = 7000;
+/** The cancel notice is an acknowledgement, not a message to read — it only
+ *  has to outlast the transition in so the user sees the press landed. */
+const CANCEL_MS = 1200;
 
 export const App = () => {
   const [state, setState] = useState<WidgetState>("idle");
@@ -310,6 +314,31 @@ export const App = () => {
           });
       }),
 
+      // The user pressed the hotkey (or Esc) mid-pipeline. Rust has already
+      // dropped anything its side produced; this is the frontend half.
+      listen("dictation-cancelled", () => {
+        // Bump first: a `polish_transcript` is very likely already in flight,
+        // and moving the generation is the only thing that stops its result
+        // from being pasted and saved once it resolves.
+        polishGenRef.current += 1;
+        clearTimer();
+        clearSuccessTimeout();
+        setError(null);
+        setPartial("");
+        setResult(null);
+
+        // The result card is post-paste, so a "Cancelled" flash there would
+        // read as an undo that never happened — dismiss it instead. Every
+        // earlier state gets the notice.
+        setState((current) =>
+          current === "recording" || current === "polishing" ? "cancelled" : "idle",
+        );
+        successTimeoutRef.current = setTimeout(() => {
+          setState("idle");
+          successTimeoutRef.current = null;
+        }, CANCEL_MS);
+      }),
+
       listen<string>("recording-error", (event) => {
         clearTimer();
         showError(event.payload);
@@ -327,6 +356,21 @@ export const App = () => {
       }
     };
   }, [clearTimer, clearSuccessTimeout, showError]);
+
+  // Esc while the widget has focus: the same escape hatch the hotkey offers,
+  // for when the cursor is already on the widget. Rust answers with
+  // `dictation-cancelled`, so the state teardown lives in that listener.
+  useEffect(() => {
+    if (state !== "recording" && state !== "polishing") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      invoke("cancel_dictation").catch((err: unknown) => {
+        console.error("Failed to cancel dictation:", err);
+      });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [state]);
 
   // Cleanup on unmount
   useEffect(() => {
