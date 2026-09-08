@@ -96,10 +96,15 @@ const ERR_CLIPBOARD_ONLY: &str = "CLIPBOARD_ONLY";
 //
 // Guaranteed regardless of this number: the restore only runs when
 // Accessibility was still trusted *after* the keystroke (so the paste was not
-// silently dropped) AND the clipboard still holds exactly the text we wrote
-// (see `should_restore`). Both failure modes now leave the transcript on the
-// clipboard instead of wiping it, so the worst case here is a cancelled paste,
-// never a lost transcript.
+// dropped by a mid-session revocation) AND the clipboard still holds exactly
+// the text we wrote (see `should_restore`, which also stops us clobbering
+// something the user copied during the delay).
+//
+// NOT guaranteed: a keystroke the target app itself ignored — no focused text
+// field, or an app that blocks synthetic paste. enigo reports Ok, Accessibility
+// is still trusted, our text is still on the clipboard, and the restore wipes
+// it. There is no cheap signal for that case, which is why this setting stays
+// opt-in and off by default.
 //
 // ponytail: 800ms itself is still a guess, not a measurement — nobody has
 // timed how long a slow target app (Slack, Mail, an Electron editor) takes to
@@ -144,9 +149,10 @@ async fn copy_to_clipboard(app: tauri::AppHandle, text: String) -> Result<(), St
 
 /// Puts `text` on the clipboard and sends Cmd+V (Ctrl+V off macOS), falling
 /// back to typing the text directly. Returns the previous clipboard text when
-/// the caller should restore it — only ever `Some` on a paste we verified
-/// landed, because every other path leaves the text on the clipboard for the
-/// user and says so via `ERR_ACCESSIBILITY` / `ERR_CLIPBOARD_ONLY`.
+/// the caller should restore it — only on a Cmd+V that enigo sent and that
+/// Accessibility did not drop. Every other path leaves the text on the
+/// clipboard for the user and says so via `ERR_ACCESSIBILITY` /
+/// `ERR_CLIPBOARD_ONLY`. See `RESTORE_DELAY_MS` for what this does not cover.
 #[tauri::command]
 async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(), String> {
     let restore_enabled = {
