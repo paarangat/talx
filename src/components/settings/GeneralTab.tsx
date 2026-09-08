@@ -8,11 +8,9 @@ import {
   DEFAULT_ASR_MODEL,
   DEFAULT_ASR_PROVIDER,
   DEFAULT_HOTKEY,
-  DEFAULT_LANGUAGE,
   DEFAULT_LLM_MODEL,
   DEFAULT_LLM_PROVIDER,
   HOTKEY_KEY,
-  LANGUAGE_KEY,
   LLM_MODEL_KEY,
   LLM_PROVIDER_KEY,
 } from "../../lib/settings";
@@ -27,9 +25,6 @@ export const GeneralTab = () => {
   const [autoPaste, setAutoPaste] = useState(() => {
     const stored = localStorage.getItem(AUTO_PASTE_KEY);
     return stored !== null ? stored === "true" : true;
-  });
-  const [language, setLanguage] = useState(() => {
-    return localStorage.getItem(LANGUAGE_KEY) ?? DEFAULT_LANGUAGE;
   });
   const [hotkey, setHotkey] = useState(() => {
     return localStorage.getItem(HOTKEY_KEY) ?? DEFAULT_HOTKEY;
@@ -58,12 +53,21 @@ export const GeneralTab = () => {
   // Lives in the Rust settings table (the backend reads it at polish time),
   // not localStorage. Default ON.
   const [contextAware, setContextAware] = useState(true);
+  // Also backend-owned: the ASR providers read it when a dictation starts.
+  // Empty is auto-detect, otherwise a bare ISO-639-1 code.
+  const [language, setLanguage] = useState("");
 
   useEffect(() => {
     invoke<boolean>("get_context_aware")
       .then(setContextAware)
       .catch((err: unknown) => {
         console.error("Failed to load context-aware setting:", err);
+      });
+
+    invoke<string>("get_language")
+      .then(setLanguage)
+      .catch((err: unknown) => {
+        console.error("Failed to load recognition language:", err);
       });
   }, []);
 
@@ -600,18 +604,26 @@ export const GeneralTab = () => {
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Recognition language</span>
-            <span className="settings-tab__description">Language(s) for speech recognition</span>
+            <span className="settings-tab__description">
+              Auto-detect handles mixed speech. Pick one to bias recognition toward it.
+            </span>
           </div>
           <select
             className="settings-select"
             value={language}
             onChange={(event) => {
-              setLanguage(event.target.value);
-              localStorage.setItem(LANGUAGE_KEY, event.target.value);
+              const next = event.target.value;
+              const previous = language;
+              setLanguage(next);
+              invoke("set_language", { language: next }).catch((err: unknown) => {
+                console.error("Failed to save recognition language:", err);
+                setLanguage(previous);
+              });
             }}
           >
+            <option value="">Auto-detect</option>
             <option value="en">English</option>
-            <option value="hi+en">Hindi + English</option>
+            <option value="hi">Hindi</option>
           </select>
         </div>
       </section>

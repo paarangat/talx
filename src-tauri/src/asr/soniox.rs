@@ -17,6 +17,29 @@ struct SonioxConfig {
     audio_format: String,
     model: String,
     include_nonfinal: bool,
+    /// Biases the model toward a language without restricting it to one. Left
+    /// off the wire entirely for auto-detect — Soniox reads an absent hint as
+    /// "any supported language", which is not what an empty list would mean.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    language_hints: Vec<String>,
+}
+
+impl SonioxConfig {
+    /// `language` is a bare ISO-639-1 code, or empty for auto-detect.
+    fn new(api_key: String, sample_rate: u32, model: String, language: &str) -> Self {
+        Self {
+            api_key,
+            sample_rate_hertz: sample_rate,
+            audio_format: "pcm_s16le".to_string(),
+            model,
+            include_nonfinal: true,
+            language_hints: if language.is_empty() {
+                Vec::new()
+            } else {
+                vec![language.to_string()]
+            },
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -41,6 +64,7 @@ impl SonioxSession {
         audio_buffer: Arc<Mutex<Vec<i16>>>,
         partial_tx: mpsc::UnboundedSender<String>,
         model: String,
+        language: &str,
     ) -> Result<Self, String> {
         let url = "wss://api.soniox.com/transcribe-websocket";
 
@@ -51,13 +75,7 @@ impl SonioxSession {
         let (mut ws_write, mut ws_read) = ws_stream.split();
 
         // Send config message
-        let config = SonioxConfig {
-            api_key,
-            sample_rate_hertz: sample_rate,
-            audio_format: "pcm_s16le".to_string(),
-            model,
-            include_nonfinal: true,
-        };
+        let config = SonioxConfig::new(api_key, sample_rate, model, language);
         let config_json = serde_json::to_string(&config)
             .map_err(|e| format!("Config serialize error: {e}"))?;
         ws_write
@@ -195,5 +213,21 @@ impl SonioxSession {
         } else {
             Ok(String::new())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SonioxConfig;
+
+    fn config_json(language: &str) -> String {
+        let config = SonioxConfig::new("key".to_string(), 16000, "model".to_string(), language);
+        serde_json::to_string(&config).expect("config serializes")
+    }
+
+    #[test]
+    fn language_hints_are_sent_only_when_set() {
+        assert!(config_json("hi").contains(r#""language_hints":["hi"]"#));
+        assert!(!config_json("").contains("language_hints"));
     }
 }
