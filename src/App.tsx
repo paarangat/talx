@@ -366,11 +366,13 @@ export const App = () => {
       if (event.key !== "Escape") return;
       invoke("cancel_dictation").catch((err: unknown) => {
         console.error("Failed to cancel dictation:", err);
+        // Same surfacing the hotkey path gets via `recording-error`.
+        showError(getErrorMessage(err, "Could not cancel the dictation."));
       });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [state]);
+  }, [showError, state]);
 
   // Cleanup on unmount
   useEffect(() => {
