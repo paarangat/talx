@@ -61,6 +61,8 @@ struct AppState {
     /// capture that lands on Talx itself leaves the previous value in place.
     target_app: Option<context::TargetApp>,
     context_aware: bool,
+    /// Recognition language as a bare ISO-639-1 code; empty means auto-detect.
+    language: String,
 }
 
 /// Settings-table key for the chosen input device name. Empty/absent = system default.
@@ -69,6 +71,20 @@ const INPUT_DEVICE_KEY: &str = "talx:input-device";
 /// SQLite `settings` key for the context-aware polish toggle. Default is ON;
 /// only an explicit "false" turns it off.
 const CONTEXT_AWARE_KEY: &str = "talx:context-aware";
+
+/// SQLite `settings` key for the recognition language. Default (absent) = auto-detect.
+const LANGUAGE_KEY: &str = "talx:language";
+
+/// Keep only a bare ISO-639-1 code; everything else — including the legacy
+/// "hi+en" this setting used to store — collapses to auto-detect. Whisper
+/// rejects codes it doesn't know, so a stray value must never reach the form.
+fn normalize_language(value: &str) -> String {
+    if value.len() == 2 && value.bytes().all(|b| b.is_ascii_lowercase()) {
+        value.to_string()
+    } else {
+        String::new()
+    }
+}
 
 fn default_hotkey() -> &'static str {
     #[cfg(target_os = "windows")]
@@ -489,7 +505,7 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
 
     // Start Soniox streaming if that's the provider
     if let asr::AsrProvider::Soniox = provider {
-        let (buffer, sample_rate) = {
+        let (buffer, sample_rate, language) = {
             let state = app.state::<Mutex<AppState>>();
             let app_state = state.lock().map_err(|e| e.to_string())?;
             let buf = app_state.audio_buffer.clone().ok_or("No audio buffer")?;
@@ -499,7 +515,7 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
                 .as_ref()
                 .map(|c| c.sample_rate())
                 .unwrap_or(16000);
-            (buf, sr)
+            (buf, sr, app_state.language.clone())
         };
 
         let (partial_tx, mut partial_rx) = mpsc::unbounded_channel::<String>();
@@ -510,6 +526,7 @@ async fn start_recording(app: tauri::AppHandle) -> Result<(), String> {
             buffer,
             partial_tx,
             asr_model_val.clone(),
+            &language,
         )
         .await?;
 
@@ -563,6 +580,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
     let groq_key;
     let asr_model_val;
     let dictionary;
+    let language;
 
     // Stop audio capture
     {
@@ -578,6 +596,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
         groq_key = app_state.groq_api_key.clone();
         asr_model_val = app_state.asr_model.clone();
         dictionary = app_state.dictionary.clone();
+        language = app_state.language.clone();
 
         let (s, sr) = app_state
             .audio_capture
@@ -602,6 +621,7 @@ async fn stop_recording(app: tauri::AppHandle) -> Result<(), String> {
                     &groq_key,
                     &asr_model_val,
                     &dictionary,
+                    &language,
                 )
                 .await
                 {
@@ -1132,6 +1152,26 @@ fn set_context_aware(app: tauri::AppHandle, enabled: bool) -> Result<(), String>
 }
 
 #[tauri::command]
+fn get_language(app: tauri::AppHandle) -> Result<String, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state.language.clone())
+}
+
+/// Persist the recognition language. Normalizes first so an unusable code can
+/// never sit in the DB and `get_language` always round-trips a real option.
+#[tauri::command]
+fn set_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
+    let normalized = normalize_language(&language);
+
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|e| e.to_string())?;
+    db::set_setting(&app_state.db_conn, LANGUAGE_KEY, &normalized).map_err(|e| e.to_string())?;
+    app_state.language = normalized;
+    Ok(())
+}
+
+#[tauri::command]
 fn save_transcription(
     app: tauri::AppHandle,
     original_text: String,
@@ -1393,6 +1433,7 @@ pub fn run() {
                 hold_mode: false,
                 target_app: None,
                 context_aware: true,
+                language: String::new(),
             }));
 
             // Context-aware polish: default ON, only an explicit "false" disables it.
@@ -1405,6 +1446,13 @@ pub fn run() {
                         .ok()
                         .flatten();
                     app_state.context_aware = stored.as_deref() != Some("false");
+
+                    // Recognition language: absent or unreadable = auto-detect.
+                    let stored = db::get_setting(&app_state.db_conn, LANGUAGE_KEY)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    app_state.language = normalize_language(&stored);
                 }
             }
 
@@ -1604,7 +1652,9 @@ pub fn run() {
             get_dictionary,
             set_dictionary,
             get_context_aware,
-            set_context_aware
+            set_context_aware,
+            get_language,
+            set_language
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
