@@ -90,13 +90,39 @@ const RESTORE_CLIPBOARD_KEY: &str = "talx:restore-clipboard";
 const ERR_ACCESSIBILITY: &str = "ACCESSIBILITY_DENIED";
 const ERR_CLIPBOARD_ONLY: &str = "CLIPBOARD_ONLY";
 
-// ponytail: 800ms is a guess, not a measurement. The target app reads the
-// clipboard asynchronously after Cmd+V, so restoring too early cancels the
-// paste. Worse: if Cmd+V returns Ok but silently no-ops (macOS does this when
-// Accessibility is revoked mid-session), the restore wipes our text too and the
-// transcript is lost entirely — no paste AND no clipboard. That is why
-// RESTORE_CLIPBOARD_KEY defaults to off. Unvalidated on real hardware.
+// How long to leave the transcript on the clipboard before putting the user's
+// previous contents back. The target app reads the clipboard asynchronously
+// after Cmd+V, so restoring too early cancels the paste.
+//
+// Guaranteed regardless of this number: the restore only runs when
+// Accessibility was still trusted *after* the keystroke (so the paste was not
+// dropped by a mid-session revocation) AND the clipboard still holds exactly
+// the text we wrote (see `should_restore`, which also stops us clobbering
+// something the user copied during the delay).
+//
+// NOT guaranteed: a keystroke the target app itself ignored — no focused text
+// field, or an app that blocks synthetic paste. enigo reports Ok, Accessibility
+// is still trusted, our text is still on the clipboard, and the restore wipes
+// it. There is no cheap signal for that case, which is why this setting stays
+// opt-in and off by default.
+//
+// ponytail: 800ms itself is still a guess, not a measurement — nobody has
+// timed how long a slow target app (Slack, Mail, an Electron editor) takes to
+// read the pasteboard after the keystroke. Measure on real hardware before
+// trusting it; not a setting, because a number the user cannot measure either
+// is not a knob worth shipping.
 const RESTORE_DELAY_MS: u64 = 800;
+
+/// Whether it is safe to put the user's previous clipboard back.
+///
+/// Only when the clipboard still holds exactly the text we wrote. Anything
+/// else means either the user copied something during `RESTORE_DELAY_MS`
+/// (theirs wins) or the clipboard is not text at all (`None`) — and if our
+/// text is gone we have nothing to hand back to, so restoring would only
+/// clobber someone else's copy.
+fn should_restore(current: Option<&str>, ours: &str) -> bool {
+    !ours.is_empty() && current == Some(ours)
+}
 
 /// Copies `text` without pasting. Offered by the result card when auto-paste
 /// is off, where the transcript would otherwise only exist in history.
@@ -123,8 +149,10 @@ async fn copy_to_clipboard(app: tauri::AppHandle, text: String) -> Result<(), St
 
 /// Puts `text` on the clipboard and sends Cmd+V (Ctrl+V off macOS), falling
 /// back to typing the text directly. Returns the previous clipboard text when
-/// the caller should restore it — only ever `Some` on a clean paste, because
-/// both fallbacks leave the text on the clipboard for the user.
+/// the caller should restore it — only on a Cmd+V that enigo sent and that
+/// Accessibility did not drop. Every other path leaves the text on the
+/// clipboard for the user and says so via `ERR_ACCESSIBILITY` /
+/// `ERR_CLIPBOARD_ONLY`. See `RESTORE_DELAY_MS` for what this does not cover.
 #[tauri::command]
 async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(), String> {
     let restore_enabled = {
@@ -137,6 +165,11 @@ async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(),
     };
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>, String>>();
+
+    // Kept out of the closure so the restore can check the clipboard still
+    // holds what we wrote before overwriting it. Must stay byte-identical to
+    // what `set_text` below writes, or the restore silently stops running.
+    let ours = text.clone();
 
     app.run_on_main_thread(move || {
         let result = (|| -> Result<Option<String>, String> {
@@ -185,6 +218,26 @@ async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(),
                 click.and(release)
             })();
 
+            // enigo reports Ok for a keystroke macOS silently dropped, which is
+            // exactly what happens when Accessibility is revoked mid-session —
+            // so `pasted` alone cannot tell us the paste landed. Re-checking
+            // the permission is the cheap signal that it did not.
+            //
+            // Checked before the fallback too, not just the Cmd+V: `enigo.text`
+            // posts CGEvents through the same AX-gated path, so it no-ops just
+            // as silently and would otherwise return Ok with nothing typed.
+            //
+            // Err, not Ok(None), even though the keystroke may have landed in
+            // the few-millisecond window before the revocation. Both skip the
+            // restore, but only Err tells the user the transcript is sitting on
+            // the clipboard waiting for a manual ⌘V. A silent Ok would leave
+            // them believing it pasted, and the next dictation would overwrite
+            // the clipboard for real. The cost is a possible double-paste —
+            // visible and undoable, unlike a lost transcript.
+            if !permissions::is_accessibility_trusted() {
+                return Err(ERR_ACCESSIBILITY.to_string());
+            }
+
             if pasted.is_ok() {
                 return Ok(previous);
             }
@@ -211,7 +264,17 @@ async fn paste_to_focused_app(app: tauri::AppHandle, text: String) -> Result<(),
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(RESTORE_DELAY_MS)).await;
             let _ = handle.run_on_main_thread(move || {
-                let _ = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(previous));
+                if let Ok(mut cb) = arboard::Clipboard::new() {
+                    // Re-read on the main thread and only hand `previous` back
+                    // if our text is still the thing we'd be overwriting. This
+                    // is what makes the restore safe whatever RESTORE_DELAY_MS
+                    // is: too short and the user copied nothing yet, too long
+                    // and they may have — either way we never clobber a copy
+                    // that isn't ours.
+                    if should_restore(cb.get_text().ok().as_deref(), &ours) {
+                        let _ = cb.set_text(previous);
+                    }
+                }
             });
         });
     }
@@ -1559,4 +1622,26 @@ pub fn run() {
                 _ => {}
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_restore_only_when_our_text_is_still_on_the_clipboard() {
+        // The clipboard still holds what we wrote — safe to hand `previous` back.
+        assert!(should_restore(Some("hello world"), "hello world"));
+        // The user copied something during the delay — theirs wins.
+        assert!(!should_restore(
+            Some("something the user copied"),
+            "hello world"
+        ));
+        // Nothing readable as text (image, file, cleared): no text of ours to
+        // overwrite, so leave the clipboard alone.
+        assert!(!should_restore(None, "hello world"));
+        assert!(!should_restore(Some(""), "hello world"));
+        // An empty transcript would otherwise match an empty clipboard.
+        assert!(!should_restore(Some(""), ""));
+    }
 }
