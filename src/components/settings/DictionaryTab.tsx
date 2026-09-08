@@ -44,7 +44,6 @@ export const DictionaryTab = () => {
 
   return (
     <div className="settings-tab">
-      <h2 className="settings-tab__title">Dictionary</h2>
 
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Known terms</h3>

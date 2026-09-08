@@ -98,6 +98,29 @@ const ERR_CLIPBOARD_ONLY: &str = "CLIPBOARD_ONLY";
 // RESTORE_CLIPBOARD_KEY defaults to off. Unvalidated on real hardware.
 const RESTORE_DELAY_MS: u64 = 800;
 
+/// Copies `text` without pasting. Offered by the result card when auto-paste
+/// is off, where the transcript would otherwise only exist in history.
+///
+/// Goes through the same main-thread hop as `paste_to_focused_app` because
+/// arboard's clipboard is not safe to touch from a worker thread on macOS.
+#[tauri::command]
+async fn copy_to_clipboard(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+
+    app.run_on_main_thread(move || {
+        let result = arboard::Clipboard::new()
+            .map_err(|e| format!("Clipboard error: {e}"))
+            .and_then(|mut c| {
+                c.set_text(&text)
+                    .map_err(|e| format!("Failed to write clipboard: {e}"))
+            });
+        let _ = tx.send(result);
+    })
+    .map_err(|e| e.to_string())?;
+
+    rx.await.map_err(|e| e.to_string())?
+}
+
 /// Puts `text` on the clipboard and sends Cmd+V (Ctrl+V off macOS), falling
 /// back to typing the text directly. Returns the previous clipboard text when
 /// the caller should restore it — only ever `Some` on a clean paste, because
@@ -232,10 +255,57 @@ fn resize_window(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), S
     let window = app
         .get_webview_window("main")
         .ok_or("main window not found")?;
-    let size = tauri::LogicalSize::new(width, height);
+
+    // `set_size` alone anchors the top-left, so the recording card — six times
+    // the height of the idle pill — would grow down and off the screen for
+    // anyone who parked the pill near the bottom. Keep the widget's centre-x
+    // and bottom edge fixed so the card unfurls in place, then clamp it back
+    // inside the monitor's work area.
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let before = window
+        .outer_size()
+        .map_err(|e| e.to_string())?
+        .to_logical::<f64>(scale);
+    let origin = window
+        .outer_position()
+        .map_err(|e| e.to_string())?
+        .to_logical::<f64>(scale);
+
     window
-        .set_size(tauri::Size::Logical(size))
+        .set_size(tauri::Size::Logical(tauri::LogicalSize::new(width, height)))
+        .map_err(|e| e.to_string())?;
+
+    let mut x = origin.x + (before.width - width) / 2.0;
+    let mut y = origin.y + (before.height - height);
+
+    // A widget that cannot be found is worse than one that moved, so clamp to
+    // the monitor it currently sits on whenever we can identify one.
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let area = monitor.size().to_logical::<f64>(monitor.scale_factor());
+        let pos = monitor
+            .position()
+            .to_logical::<f64>(monitor.scale_factor());
+        const MARGIN: f64 = 8.0;
+        x = x.clamp(pos.x + MARGIN, (pos.x + area.width - width - MARGIN).max(pos.x + MARGIN));
+        y = y.clamp(pos.y + MARGIN, (pos.y + area.height - height - MARGIN).max(pos.y + MARGIN));
+    }
+
+    window
+        .set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)))
         .map_err(|e| e.to_string())
+}
+
+/// Live microphone loudness, 0.0..=1.0. Polled by the recording card so the
+/// waveform reflects the user's actual voice; returns 0.0 when not recording.
+#[tauri::command]
+fn get_audio_level(state: tauri::State<'_, Mutex<AppState>>) -> Result<f32, String> {
+    let app_state = state.lock().map_err(|e| e.to_string())?;
+    Ok(app_state
+        .audio_capture
+        .0
+        .as_ref()
+        .map(|c| f32::from_bits(c.level().load(std::sync::atomic::Ordering::Relaxed)))
+        .unwrap_or(0.0))
 }
 
 #[tauri::command]
@@ -1432,11 +1502,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             paste_to_focused_app,
+            copy_to_clipboard,
             check_accessibility_permission,
             open_accessibility_settings,
             get_restore_clipboard,
             set_restore_clipboard,
             resize_window,
+            get_audio_level,
             open_dashboard_window,
             update_tray_status,
             update_tray_words,

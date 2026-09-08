@@ -308,7 +308,6 @@ export const GeneralTab = () => {
 
   return (
     <div className="settings-tab">
-      <h2 className="settings-tab__title">General</h2>
 
       {!accessibilityOk && (
         <section className="settings-tab__section">
@@ -337,7 +336,7 @@ export const GeneralTab = () => {
       )}
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Hotkey</h3>
+        <h3 className="settings-tab__section-header">Dictation</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Activation shortcut</span>
@@ -355,10 +354,6 @@ export const GeneralTab = () => {
             </button>
           </div>
         </div>
-      </section>
-
-      <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Microphone</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Input device</span>
@@ -407,7 +402,7 @@ export const GeneralTab = () => {
       </section>
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Speech Provider</h3>
+        <h3 className="settings-tab__section-header">Speech</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Transcription engine</span>
@@ -426,10 +421,6 @@ export const GeneralTab = () => {
             <option value="soniox">Soniox (Paid)</option>
           </select>
         </div>
-      </section>
-
-      <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Speech Model</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">ASR model</span>
@@ -474,7 +465,7 @@ export const GeneralTab = () => {
       </section>
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Polish Provider</h3>
+        <h3 className="settings-tab__section-header">Polishing</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">LLM engine</span>
@@ -493,10 +484,6 @@ export const GeneralTab = () => {
             <option value="openai">OpenAI (Paid)</option>
           </select>
         </div>
-      </section>
-
-      <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Polish Model</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">LLM model</span>
@@ -541,7 +528,7 @@ export const GeneralTab = () => {
       </section>
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Behavior</h3>
+        <h3 className="settings-tab__section-header">Behavior & language</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Auto-paste after polish</span>
@@ -610,10 +597,6 @@ export const GeneralTab = () => {
             <div className="settings-toggle__knob" />
           </button>
         </div>
-      </section>
-
-      <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Language</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Recognition language</span>
