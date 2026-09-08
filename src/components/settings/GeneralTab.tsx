@@ -191,7 +191,7 @@ export const GeneralTab = () => {
   const handleProviderChange = (value: string) => {
     setAsrProvider(value);
     localStorage.setItem(ASR_PROVIDER_KEY, value);
-    const defaultModel = value === "groq" ? DEFAULT_ASR_MODEL : "soniox-v2";
+    const defaultModel = value === "groq" ? DEFAULT_ASR_MODEL : "stt-rt-v5";
     setAsrModel(defaultModel);
     localStorage.setItem(ASR_MODEL_KEY, defaultModel);
   };
