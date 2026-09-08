@@ -46,6 +46,8 @@ Talx is a floating dictation widget for macOS. Hold a hotkey, speak, and it tran
 3. **Release** — the LLM cleans up the transcript
 4. **Done** — polished text is auto-pasted into the active app
 
+Changed your mind? Press the hotkey again (or `Esc` while the widget has focus) while it's still transcribing or polishing — the dictation is dropped, nothing is pasted and nothing is saved to history.
+
 ## Tech stack
 
 | Layer | Technology |

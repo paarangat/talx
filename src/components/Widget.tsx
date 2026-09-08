@@ -3,7 +3,7 @@ import { useDrag } from "../hooks/useDrag";
 import { METER_BARS, useAudioLevels } from "../hooks/useAudioLevels";
 import { DEFAULT_HOTKEY, HOTKEY_KEY, formatHotkey } from "../lib/settings";
 
-type WidgetState = "idle" | "recording" | "polishing" | "success";
+type WidgetState = "idle" | "recording" | "polishing" | "success" | "cancelled";
 
 interface PolishResult {
   text: string;
@@ -104,6 +104,15 @@ export const Widget = ({
             <span className="brand__name">Talx</span>
           </span>
           <kbd className="kbd">{formatHotkey(hotkey)}</kbd>
+        </div>
+      )}
+
+      {/* Nothing went wrong — the user chose this — so it borrows the idle
+          pill rather than the error surface. */}
+      {!error && state === "cancelled" && (
+        <div className="widget__body">
+          <span className="widget__notice-mark" />
+          <span className="widget__notice-text">Cancelled</span>
         </div>
       )}
 
