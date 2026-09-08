@@ -767,9 +767,12 @@ async fn fetch_models(app: tauri::AppHandle, provider: String) -> Result<Vec<Mod
         }
     };
 
-    // Soniox has no public model list API — return empty without requiring a key
+    // Soniox has no public model list API — offer the current real-time model
+    // without requiring a key.
     if provider == "soniox" {
-        return Ok(vec![]);
+        return Ok(vec![ModelInfo {
+            id: asr::soniox::DEFAULT_MODEL.to_string(),
+        }]);
     }
 
     if api_key.is_empty() {
@@ -952,44 +955,38 @@ async fn test_api_key(provider: String, key: String) -> Result<(), String> {
             use futures_util::{SinkExt, StreamExt};
             use tokio_tungstenite::tungstenite::Message;
 
-            let (ws_stream, _) =
-                tokio_tungstenite::connect_async("wss://api.soniox.com/transcribe-websocket")
-                    .await
-                    .map_err(|e| format!("Connection failed: {e}"))?;
+            let (ws_stream, _) = tokio_tungstenite::connect_async(asr::soniox::ENDPOINT)
+                .await
+                .map_err(|e| format!("Connection failed: {e}"))?;
 
             let (mut ws_write, mut ws_read) = ws_stream.split();
 
-            let config = serde_json::json!({
-                "api_key": key,
-                "sample_rate_hertz": 16000,
-                "audio_format": "pcm_s16le",
-                "model": "soniox-v2",
-                "include_nonfinal": false
-            });
-
+            let config =
+                asr::soniox::SonioxConfig::new(key, 16000, asr::soniox::DEFAULT_MODEL, "");
+            let config_json =
+                serde_json::to_string(&config).map_err(|e| format!("Config error: {e}"))?;
             ws_write
-                .send(Message::Text(config.to_string().into()))
+                .send(Message::Text(config_json.into()))
                 .await
                 .map_err(|e| format!("Failed to send config: {e}"))?;
 
-            // Read one response to check for auth errors
+            // The server stays silent after a valid config until audio arrives,
+            // so end the stream immediately: a bad key answers with an error
+            // message, a good one with `finished`.
+            ws_write
+                .send(Message::Text(String::new().into()))
+                .await
+                .map_err(|e| format!("Failed to send end-of-audio: {e}"))?;
+
             let response = tokio::time::timeout(std::time::Duration::from_secs(5), ws_read.next())
                 .await
                 .map_err(|_| "Connection timed out".to_string())?;
 
             let result = match response {
-                Some(Ok(Message::Text(text))) => {
-                    let text_str: &str = &text;
-                    let lower = text_str.to_lowercase();
-                    if lower.contains("error")
-                        || lower.contains("unauthorized")
-                        || lower.contains("invalid")
-                    {
-                        Err(format!("Invalid key: {text_str}"))
-                    } else {
-                        Ok(())
-                    }
-                }
+                Some(Ok(Message::Text(text))) => match asr::soniox::error_in(&text) {
+                    Some(err) => Err(format!("Invalid key: {err}")),
+                    None => Ok(()),
+                },
                 Some(Ok(Message::Close(frame))) => {
                     let reason = frame.map(|f| f.reason.to_string()).unwrap_or_default();
                     Err(format!("Connection rejected: {reason}"))
