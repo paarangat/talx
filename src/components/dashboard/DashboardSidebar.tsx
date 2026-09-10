@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { DEFAULT_HOTKEY, HOTKEY_KEY, formatHotkey } from "../../lib/settings";
 
 type DashboardPage = "home" | "settings";
 
@@ -25,6 +26,12 @@ export const DashboardSidebar = ({
   activePage,
   onPageChange,
 }: DashboardSidebarProps) => {
+  const [hotkey, setHotkey] = useState(DEFAULT_HOTKEY);
+
+  useEffect(() => {
+    setHotkey(localStorage.getItem(HOTKEY_KEY) ?? DEFAULT_HOTKEY);
+  }, []);
+
   useEffect(() => {
     const unlisten = listen<string>("navigate-section", (event) => {
       const section = event.payload;
@@ -65,6 +72,13 @@ export const DashboardSidebar = ({
           </li>
         ))}
       </ul>
+      {/* The hotkey is how the app is actually used; the window is where it is
+          configured. Keeping it in view stops the widget being the only place
+          a user ever learns it. */}
+      <div className="dashboard__sidebar-foot">
+        <kbd>{formatHotkey(hotkey)}</kbd>
+        <span>to dictate</span>
+      </div>
     </nav>
   );
 };

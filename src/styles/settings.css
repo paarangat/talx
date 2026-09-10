@@ -1,10 +1,12 @@
-/* ─── Settings layout ─── */
+/* ═══ Standalone settings window shell ═══
+   Kept for the case where settings render outside the dashboard; the embedded
+   path is styled in dashboard.css. */
 .settings {
   display: flex;
   width: 100vw;
   height: 100vh;
-  background: var(--bg-idle);
-  color: var(--text-primary);
+  background: var(--paper);
+  color: var(--ink);
   font-family: var(--font-ui);
   position: relative;
   overflow: hidden;
@@ -20,65 +22,32 @@
   z-index: 0;
 }
 
-/* ─── Sidebar ─── */
 .settings__sidebar {
-  width: 200px;
-  min-width: 200px;
-  border-right: 1px solid var(--border);
+  width: 194px;
+  min-width: 194px;
+  border-right: 1px solid var(--paper-edge);
   display: flex;
   flex-direction: column;
-  padding: 20px 0;
+  padding: var(--s5) 0;
   position: relative;
   z-index: 1;
 }
 
 .settings__sidebar-header {
-  padding: 0 20px 16px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 8px;
+  padding: 0 var(--s5) var(--s5);
 }
 
 .settings__sidebar-title {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 18px;
-  color: var(--text-primary);
-  letter-spacing: 0.3px;
+  font-size: var(--fs-lg);
+  color: var(--ink);
 }
 
 .settings__nav {
   list-style: none;
-  padding: 0;
+  padding: 0 var(--s3);
   margin: 0;
-}
-
-.settings__nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 20px;
-  border: none;
-  border-left: 3px solid transparent;
-  background: none;
-  color: var(--text-secondary);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s var(--ease-spring);
-  text-align: left;
-}
-
-.settings__nav-item:hover {
-  color: var(--text-primary);
-  background: var(--bg-surface);
-}
-
-.settings__nav-item--active {
-  border-left-color: var(--accent);
-  color: var(--text-primary);
-  background: var(--bg-surface);
 }
 
 .settings__nav-icon {
@@ -87,73 +56,112 @@
   flex-shrink: 0;
 }
 
-/* ─── Content area ─── */
 .settings__content {
   flex: 1;
-  padding: 32px;
+  padding: var(--s7);
   overflow-y: auto;
   position: relative;
   z-index: 1;
 }
 
-/* Scrollbar styling */
-.settings__content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.settings__content::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+.settings__content::-webkit-scrollbar { width: 8px; }
+.settings__content::-webkit-scrollbar-track { background: transparent; }
 .settings__content::-webkit-scrollbar-thumb {
-  background: var(--border-hover);
-  border-radius: 3px;
+  background: var(--paper-edge);
+  border-radius: 4px;
+  border: 2px solid var(--paper);
 }
 
-/* ─── Tab common styles ─── */
+/* ═══ Tab body ═══ */
 .settings-tab {
-  max-width: 480px;
+  max-width: 620px;
 }
 
-.settings-tab__title {
-  font-family: var(--font-ui);
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 24px;
-}
-
+/* ═══ Panels ═══
+   Each section is one card with a titled band and hairline-separated rows.
+   Previously a section was a bare heading followed by rows floating on the
+   page, which turned five settings into a column of unrelated fragments and
+   left every control at a different horizontal position. */
 .settings-tab__section {
-  margin-bottom: 24px;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--lift-1), var(--bevel);
+  margin-bottom: var(--s4);
+  overflow: hidden;
 }
 
 .settings-tab__section-header {
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--fs-xs);
   font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  color: var(--ink-faint);
+  background: var(--well);
+  padding: 10px var(--s4);
+  border-bottom: 1px solid var(--hairline);
+  margin: 0;
+}
+
+/* Every panel child inherits the gutter, whether or not it happens to be a
+   __row — API-key fields and the dictionary editor are panel content too, and
+   without this they bled to the card's edges. */
+.settings-tab__section > *:not(.settings-tab__section-header) {
+  padding: 13px var(--s4);
 }
 
 .settings-tab__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 0;
+  gap: var(--s4);
+}
+
+/* Hairlines separate discrete settings, not the parts of one control. */
+.settings-tab__row + .settings-tab__row,
+.api-key-field + .api-key-field {
+  border-top: 1px solid var(--hairline);
+}
+
+/* The dictionary editor is a single control spread over several elements, so
+   it reads as one block with tightened internal spacing. */
+.settings-tab__section > .dictionary__hint { padding-bottom: 4px; }
+.settings-tab__section > .dictionary__add { margin: 0; padding-top: 4px; padding-bottom: 8px; }
+.settings-tab__section > .dictionary__list,
+.settings-tab__section > .dictionary__empty { padding-top: 0; }
+.settings-tab__section > .position-grid { margin-top: 0; padding-top: 4px; }
+.settings-tab__section > .settings-tab__description { padding-bottom: 0; }
+
+/* Right-aligning only makes sense inside a row, where the error trails its
+   control. As a panel child it reads under the field it belongs to. */
+.settings-tab__section > .settings-notice {
+  margin-bottom: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--terra-wash);
+}
+
+.settings-tab__section > .settings-tab__inline-error {
+  display: block;
+  text-align: left;
+  max-width: none;
+  padding-top: 0;
 }
 
 .settings-tab__row-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   flex: 1;
+  min-width: 0;
 }
 
 .settings-tab__row-action {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--s2);
+  flex-shrink: 0;
 }
 
 .settings-tab__row-action--stack {
@@ -163,223 +171,230 @@
 
 .settings-tab__label {
   font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--text-secondary);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--ink);
 }
 
 .settings-tab__description {
   font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--ink-faint);
 }
 
 .settings-tab__inline-error {
   max-width: 260px;
-  color: #8f3422;
+  color: #8f3f08;
   font-family: var(--font-ui);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
   text-align: right;
 }
 
-/* ─── Notice (missing permission, etc.) ─── */
+/* Legacy: tabs no longer render their own title — the tab strip names them. */
+.settings-tab__title { display: none; }
+
+/* ═══ Notice ═══ */
 .settings-notice {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
+  gap: var(--s4);
+  padding: var(--s3) var(--s4);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(192, 80, 58, 0.35);
-  background: rgba(192, 80, 58, 0.06);
+  border: 1px solid #f0cdae;
+  background: var(--terra-wash);
+  margin-bottom: var(--s4);
 }
 
 .settings-notice__body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   flex: 1;
 }
 
 .settings-notice__title {
-  font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
-  color: var(--rec-red);
+  color: #8f3f08;
 }
 
 .settings-notice__text {
-  font-family: var(--font-ui);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--ink-soft);
 }
 
-.settings-notice .settings-tab__btn-danger {
-  flex-shrink: 0;
-}
+.settings-notice .settings-tab__btn-danger { flex-shrink: 0; }
 
-/* ─── Hotkey badge ─── */
+/* ═══ Controls ═══ */
 .settings-tab__hotkey-badge {
   font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  padding: 5px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  background: var(--well);
+  padding: 6px 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--hairline);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.06);
 }
 
-/* ─── Secondary button ─── */
 .settings-tab__btn-secondary {
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 500;
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
+  color: var(--ink-soft);
+  background: var(--card-raised);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-sm);
-  padding: 6px 14px;
+  padding: 7px 14px;
   cursor: pointer;
-  transition: all 0.2s var(--ease-spring);
+  box-shadow: var(--lift-1);
+  transition: color 0.2s var(--ease-spring), border-color 0.2s var(--ease-spring),
+    transform 0.2s var(--ease-spring);
 }
 
-.settings-tab__btn-secondary:hover {
-  color: var(--text-primary);
-  border-color: var(--border-hover);
-  background: rgba(44, 37, 32, 0.04);
+.settings-tab__btn-secondary:hover:not(:disabled) {
+  color: var(--copper);
+  border-color: var(--copper);
+  transform: translateY(-1px);
 }
 
-/* ─── Danger button ─── */
+.settings-tab__btn-secondary:disabled { opacity: 0.45; cursor: default; }
+
 .settings-tab__btn-danger {
-  font-family: "Bricolage Grotesque", sans-serif;
-  font-size: 13px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
   font-weight: 500;
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: 1px solid #c0503a;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--terra);
   background: transparent;
-  color: #c0503a;
+  color: var(--terra);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
 .settings-tab__btn-danger:hover {
-  background: #c0503a;
-  color: #faf6f0;
+  background: var(--terra);
+  color: #ffffff;
 }
 
-/* ─── Toggle switch ─── */
+/* Toggle — a switch in a machined slot: inset track, raised knob. */
 .settings-toggle {
   width: 40px;
   height: 22px;
   border-radius: 11px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
+  border: 1px solid var(--hairline-strong);
+  background: var(--well);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
   cursor: pointer;
   position: relative;
-  transition: all 0.25s var(--ease-spring);
+  transition: background 0.25s var(--ease-spring), border-color 0.25s var(--ease-spring);
   flex-shrink: 0;
   padding: 0;
 }
 
 .settings-toggle--on {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--copper);
+  border-color: var(--copper);
 }
 
 .settings-toggle__knob {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--text-primary);
+  background: var(--card-raised);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   position: absolute;
   top: 2px;
   left: 2px;
   transition: transform 0.25s var(--ease-spring);
 }
 
-.settings-toggle--on .settings-toggle__knob {
-  transform: translateX(18px);
-  background: #ffffff;
-}
+.settings-toggle--on .settings-toggle__knob { transform: translateX(18px); }
 
-/* ─── Select dropdown ─── */
 .settings-select {
   font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  background-color: var(--card-raised);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-sm);
-  padding: 6px 32px 6px 12px;
+  padding: 7px 30px 7px 12px;
   cursor: pointer;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%232c2520' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' opacity='0.4'/%3E%3C/svg%3E");
+  box-shadow: var(--lift-1);
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236b5d50' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   transition: border-color 0.2s var(--ease-spring);
+  max-width: 260px;
 }
 
-.settings-select:hover {
-  border-color: var(--border-hover);
-}
+.settings-select:hover { border-color: var(--copper); }
 
 .settings-select:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--copper);
+  box-shadow: 0 0 0 3px var(--copper-wash);
 }
 
-.settings-select option {
-  background: var(--bg-active);
-  color: var(--text-primary);
-}
+.settings-select option { background: var(--card); color: var(--ink); }
 
-/* ─── Custom model input ─── */
-.settings-model-custom {
-  display: flex;
-  align-items: center;
-}
+/* ═══ Text inputs ═══
+   Inputs are inset (recessed track), buttons are raised. Keeping that
+   distinction consistent is most of what makes a panel read as machined
+   rather than as a stack of same-coloured rectangles. */
+.settings-model-custom { display: flex; align-items: center; }
 
-.settings-model-custom__input {
+.settings-model-custom__input,
+.api-key-field__input,
+.dictionary__input {
   font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--accent);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-sm);
-  padding: 6px 12px;
-  width: 200px;
-  transition: border-color 0.2s var(--ease-spring);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.07);
+  transition: border-color 0.2s var(--ease-spring), box-shadow 0.2s var(--ease-spring);
 }
 
-.settings-model-custom__input::placeholder {
-  color: var(--text-tertiary);
-}
+.settings-model-custom__input { padding: 7px 12px; width: 200px; }
+.api-key-field__input { width: 100%; padding: 8px 36px 8px 12px; }
+.dictionary__input { flex: 1; padding: 8px 12px; }
 
-.settings-model-custom__input:focus {
+.settings-model-custom__input::placeholder,
+.api-key-field__input::placeholder,
+.dictionary__input::placeholder { color: var(--ink-faint); }
+
+.settings-model-custom__input:focus,
+.api-key-field__input:focus,
+.dictionary__input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--copper);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.07), 0 0 0 3px var(--copper-wash);
 }
 
-/* ─── API Key field ─── */
+/* ═══ API keys ═══ */
 .api-key-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--s2);
 }
 
 .api-key-field__header {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .api-key-field__input-row {
   display: flex;
-  gap: 8px;
+  gap: var(--s2);
   align-items: center;
 }
 
@@ -390,27 +405,6 @@
   align-items: center;
 }
 
-.api-key-field__input {
-  width: 100%;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 36px 8px 12px;
-  transition: border-color 0.2s var(--ease-spring);
-}
-
-.api-key-field__input::placeholder {
-  color: var(--text-tertiary);
-}
-
-.api-key-field__input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
 .api-key-field__toggle {
   position: absolute;
   right: 8px;
@@ -418,7 +412,7 @@
   height: 20px;
   background: none;
   border: none;
-  color: var(--text-tertiary);
+  color: var(--ink-faint);
   cursor: pointer;
   padding: 0;
   display: flex;
@@ -426,151 +420,113 @@
   justify-content: center;
 }
 
-.api-key-field__toggle svg {
-  width: 16px;
-  height: 16px;
-}
-
-.api-key-field__toggle:hover {
-  color: var(--text-secondary);
-}
+.api-key-field__toggle svg { width: 16px; height: 16px; }
+.api-key-field__toggle:hover { color: var(--ink-soft); }
 
 .api-key-field__status {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 
-.api-key-field__status--success {
-  color: var(--success);
-}
+.api-key-field__status--success { color: var(--moss); }
+.api-key-field__status--error { color: var(--terra); }
 
-.api-key-field__status--error {
-  color: var(--rec-red);
-}
-
-/* ─── Theme options ─── */
+/* ═══ Appearance ═══ */
 .theme-option {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--s2);
   cursor: pointer;
 }
 
-.theme-option--disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+.theme-option--disabled { opacity: 0.4; cursor: not-allowed; }
 
 .theme-option__swatch {
   width: 64px;
   height: 44px;
   border-radius: var(--radius-sm);
-  border: 2px solid transparent;
+  border: 2px solid var(--hairline-strong);
+  box-shadow: var(--lift-1);
   transition: border-color 0.2s var(--ease-spring);
 }
 
-.theme-option--active .theme-option__swatch {
-  border-color: var(--accent);
-}
-
-.theme-option__swatch--dark {
-  background: #1a1714;
-  border: 2px solid var(--border-hover);
-}
-
-.theme-option--active .theme-option__swatch--dark {
-  border-color: var(--accent);
-}
-
-.theme-option__swatch--light {
-  background: var(--bg-idle);
-  border: 2px solid var(--border-hover);
-}
-
-.theme-option--active .theme-option__swatch--light {
-  border-color: var(--accent);
-}
+.theme-option--active .theme-option__swatch { border-color: var(--copper); }
+.theme-option__swatch--dark { background: #1a1a1a; }
+.theme-option__swatch--light { background: var(--card); }
 
 .theme-option__label {
-  font-family: var(--font-ui);
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
 }
 
 .theme-option__badge {
-  font-size: 10px;
-  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--ink-faint);
 }
 
-/* ─── Position grid ─── */
 .position-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   width: 120px;
-  margin-top: 12px;
+  margin-top: var(--s3);
 }
 
 .position-grid__cell {
   width: 36px;
   height: 24px;
-  border-radius: 4px;
-  border: 1.5px solid var(--border);
-  background: var(--bg-surface);
+  border-radius: var(--radius-xs);
+  border: 1.5px solid var(--hairline-strong);
+  background: var(--well);
   cursor: pointer;
-  transition: all 0.2s var(--ease-spring);
+  transition: border-color 0.2s var(--ease-spring), background 0.2s var(--ease-spring);
   padding: 0;
 }
 
-.position-grid__cell:hover {
-  border-color: var(--border-hover);
-}
+.position-grid__cell:hover { border-color: var(--copper); }
 
 .position-grid__cell--active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--copper);
+  background: var(--copper-wash);
 }
 
-/* ─── About ─── */
-.settings-tab--about {
-  display: flex;
-  align-items: flex-start;
-}
+/* ═══ About ═══ */
+.settings-tab--about { display: flex; align-items: flex-start; }
 
 .about {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .about__name {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 24px;
+  font-size: var(--fs-xl);
   font-weight: 400;
-  color: var(--text-primary);
+  color: var(--ink);
 }
 
 .about__version {
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
 }
 
 .about__description {
-  font-family: var(--font-ui);
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-  max-width: 360px;
-  margin-top: 4px;
+  font-size: var(--fs-base);
+  line-height: 1.65;
+  color: var(--ink-soft);
+  max-width: 42ch;
+  margin-top: var(--s1);
 }
 
 .about__links {
   display: flex;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--s2);
+  margin-top: var(--s3);
 }
 
 .about__link {
@@ -578,116 +534,85 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 500;
-  color: var(--accent);
-  background: none;
-  border: 1px solid var(--border);
+  color: var(--copper);
+  background: var(--card);
+  border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-sm);
   padding: 8px 14px;
   cursor: pointer;
-  transition: all 0.2s var(--ease-spring);
+  box-shadow: var(--lift-1);
+  transition: border-color 0.2s var(--ease-spring), background 0.2s var(--ease-spring),
+    transform 0.2s var(--ease-spring);
 }
 
 .about__link:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--copper);
+  background: var(--copper-wash);
+  transform: translateY(-1px);
 }
 
-.about__link-icon {
-  width: 16px;
-  height: 16px;
-}
+.about__link-icon { width: 16px; height: 16px; }
 
 .about__license {
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin-top: 8px;
+  font-size: var(--fs-micro);
+  color: var(--ink-faint);
+  margin-top: var(--s2);
 }
 
-/* ─── Dictionary ─── */
+/* ═══ Dictionary ═══ */
 .dictionary__hint {
-  font-family: var(--font-ui);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--ink-faint);
   margin: 0;
 }
 
 .dictionary__add {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 14px 0 12px;
-}
-
-.dictionary__input {
-  flex: 1;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 12px;
-  transition: border-color 0.2s var(--ease-spring);
-}
-
-.dictionary__input::placeholder {
-  color: var(--text-tertiary);
-}
-
-.dictionary__input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.settings-tab__btn-secondary:disabled {
-  opacity: 0.45;
-  cursor: default;
+  gap: var(--s2);
+  margin: var(--s3) 0;
 }
 
 .dictionary__empty {
-  font-family: var(--font-ui);
-  font-size: 12px;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--fs-md);
   line-height: 1.5;
-  color: var(--text-tertiary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 14px 16px;
+  color: var(--ink-faint);
   margin: 0;
 }
 
 .dictionary__list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--s2);
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
+/* Terms read as filed tags: copper wash, pill, hairline. */
 .dictionary__item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: var(--accent-soft);
-  border: 1px solid var(--border);
+  background: var(--copper-wash);
+  border: 1px solid #f0cdae;
   border-radius: var(--radius-pill);
   padding: 5px 6px 5px 12px;
-  transition: border-color 0.25s var(--ease-spring), background 0.25s var(--ease-spring);
+  transition: border-color 0.25s var(--ease-spring);
 }
 
-.dictionary__item:hover {
-  border-color: var(--accent);
-}
+.dictionary__item:hover { border-color: var(--copper); }
 
 .dictionary__term {
   font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  color: var(--ink);
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -704,15 +629,15 @@
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--ink-faint);
   font-family: var(--font-ui);
-  font-size: 15px;
+  font-size: var(--fs-md);
   line-height: 1;
   cursor: pointer;
   transition: color 0.2s var(--ease-spring), background 0.2s var(--ease-spring);
 }
 
 .dictionary__remove:hover {
-  color: #faf6f0;
-  background: var(--rec-red);
+  color: #ffffff;
+  background: var(--terra);
 }

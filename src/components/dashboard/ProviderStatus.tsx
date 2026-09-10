@@ -44,7 +44,7 @@ export const ProviderStatus = ({ onConfigure }: ProviderStatusProps) => {
   return (
     <div className="provider-status">
       <div className="provider-status__header">
-        <h3 className="home-page__section-title">Providers</h3>
+        <h3 className="section-title">Providers</h3>
         <button className="provider-status__configure" onClick={onConfigure}>
           Configure
         </button>

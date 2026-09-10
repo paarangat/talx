@@ -1,44 +1,111 @@
+/* ═══════════════════════════════════════════════════════════
+   Talx design tokens — "Paper Grey"
+
+   Premium analog instrument, not a web app. Neutral monochrome
+   ground with a single orange accent — the only chroma in the UI,
+   so anything copper-colored reads as "active" without a legend.
+   Elevation is a real ladder (page darker than card) built from
+   SOLID greys, never alpha-over-tint.
+   ═══════════════════════════════════════════════════════════ */
+
 :root {
-  /* Backgrounds — warm, light, clean */
-  --bg-idle: #f8f4ef;
-  --bg-active: #f3efe8;
-  --bg-surface: rgba(180, 140, 90, 0.06);
+  /* ─── Ground: a 3-step neutral elevation ladder ───
+     The page is DEEPER than the surfaces raised off it, so cards
+     catch light instead of sinking into a tinted well. */
+  --paper: #ebebeb;        /* the desk — window backgrounds */
+  --paper-edge: #dcdcdc;   /* rules, dividers, sunken hairlines */
+  --card: #fafafa;         /* raised surfaces — widget, cards, panels */
+  --card-raised: #ffffff;  /* the highest plane — hover, active rows */
+  --well: #e4e4e4;         /* inset — inputs, tracks, pressed states */
 
-  /* Accent — warm copper (matches logo) */
-  --accent: #b07a3b;
-  --accent-glow: rgba(176, 122, 59, 0.22);
-  --accent-soft: rgba(176, 122, 59, 0.08);
+  /* ─── Ink: solid neutral tones, never alpha ─── */
+  --ink: #171717;          /* headings, primary text */
+  --ink-soft: #5c5c5c;     /* body, labels */
+  --ink-faint: #9a9a9a;    /* hints, timestamps, units */
 
-  /* Recording state — terracotta */
-  --rec-red: #c0503a;
-  --rec-glow: rgba(192, 80, 58, 0.14);
+  /* ─── Orange: the ONLY chroma in the system ─── */
+  --copper: #c2570f;       /* text, active states, borders */
+  --copper-bright: #e8801f; /* dots, waveform, small marks that need lift */
+  --copper-wash: #fbeadb;  /* solid tinted fill — not a translucent glaze */
 
-  /* Success state — sage */
-  --success: #5d8a4c;
-  --success-glow: rgba(93, 138, 76, 0.12);
+  /* ─── Deep orange: recording only ─── */
+  --terra: #d4581a;
+  --terra-wash: #fbe6d9;
 
-  /* Text — warm dark tones */
-  --text-primary: #2c2520;
-  --text-secondary: rgba(44, 37, 32, 0.62);
-  --text-tertiary: rgba(44, 37, 32, 0.38);
+  /* ─── Success: neutral ink, not green. In a monochrome UI the
+     icon and copy carry the state, not a hue. ─── */
+  --moss: #3d3d3d;
+  --moss-wash: #e6e6e6;
 
-  /* Borders — warm-tinted */
-  --border: rgba(44, 37, 32, 0.10);
-  --border-hover: rgba(44, 37, 32, 0.20);
+  /* ─── Borders ─── */
+  --hairline: #dedede;     /* the default 1px rule */
+  --hairline-strong: #c4c4c4;
 
-  /* Typography */
+  /* ─── Shadow: layered and neutral. No colored outer glows —
+     a 32px halo in the accent color is the single loudest
+     "generated UI" tell. Depth comes from contact shadow +
+     a top highlight, the way a real object sits on a desk. ─── */
+  --lift-1: 0 1px 2px rgba(0, 0, 0, 0.07);
+  --lift-2: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 14px -8px rgba(0, 0, 0, 0.20);
+  --lift-3: 0 2px 4px rgba(0, 0, 0, 0.07), 0 18px 36px -14px rgba(0, 0, 0, 0.28);
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+  /* ─── Typography ─── */
   --font-ui: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: 'Instrument Serif', Georgia, serif;
-  --font-mono: 'Space Mono', monospace;
+  --font-mono: 'Space Mono', ui-monospace, monospace;
 
-  /* Radii */
+  /* A real scale with gaps you can see. The old UI sat entirely
+     between 11px and 14px, which is why nothing had hierarchy. */
+  --fs-micro: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 15px;
+  --fs-lg: 19px;
+  --fs-xl: 27px;
+  --fs-display: 44px;
+
+  --track-caps: 0.09em;    /* uppercase micro-labels */
+  --track-tight: -0.01em;  /* large display numerals */
+
+  /* ─── Space ─── */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 28px;
+  --s7: 40px;
+
+  /* ─── Radii ─── */
   --radius: 14px;
   --radius-sm: 8px;
+  --radius-xs: 5px;
   --radius-pill: 50px;
 
-  /* Easing */
+  /* ─── Easing ─── */
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* Grain — inline SVG noise for texture */
+  /* ─── Grain — SVG noise for a matte, papery surface ─── */
   --grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+
+  /* ─── Legacy aliases ───
+     Older rules across dashboard.css / settings.css still read
+     these names. Mapped so nothing renders unstyled mid-refactor. */
+  --bg-idle: var(--card);
+  --bg-active: var(--card);
+  --bg-surface: var(--well);
+  --accent: var(--copper);
+  --accent-glow: rgba(194, 87, 15, 0.18);
+  --accent-soft: var(--copper-wash);
+  --rec-red: var(--terra);
+  --rec-glow: rgba(212, 88, 26, 0.14);
+  --success: var(--moss);
+  --success-glow: rgba(0, 0, 0, 0.10);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-soft);
+  --text-tertiary: var(--ink-faint);
+  --border: var(--hairline);
+  --border-hover: var(--hairline-strong);
 }

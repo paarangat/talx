@@ -129,7 +129,7 @@ export const RecentTranscriptions = () => {
   return (
     <div className="recent-transcriptions">
       <div className="recent-transcriptions__header">
-        <h3 className="home-page__section-title">{term ? "Results" : "Recent"}</h3>
+        <h3 className="section-title">{term ? "Results" : "Recent"}</h3>
         <div className="recent-transcriptions__actions">
           <button
             className="recent-transcriptions__export"

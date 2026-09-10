@@ -1,66 +1,51 @@
-/* Recording dot breathing pulse */
-@keyframes rec-pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
+/* Recording dot — a ring that expands and fades, like a sonar return.
+   Scale + opacity only, so it stays on the compositor. */
+@keyframes ping {
+  0% { transform: scale(1); opacity: 0.5; }
+  70%, 100% { transform: scale(2.6); opacity: 0; }
 }
 
-/* Waveform bar animation */
-@keyframes wave {
-  from {
-    height: 3px;
-    opacity: 0.4;
-  }
-  to {
-    height: var(--h, 18px);
-    opacity: 0.9;
-  }
+/* Polishing dot — a slow breath rather than a blink */
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.72); }
 }
 
-/* State entry — gentle rise */
+/* Polishing bar — a single pass of light travelling the track */
+@keyframes sweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(400%); }
+}
+
+/* Transcript caret — holds on, snaps off */
+@keyframes caret {
+  0%, 65% { opacity: 1; }
+  66%, 100% { opacity: 0; }
+}
+
+/* State entry — a gentle rise into place */
 @keyframes enter {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-/* Polishing dot pulse */
-@keyframes pill-pulse {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(0.7);
-    opacity: 0.4;
-  }
+/* Error — one small shake, not a klaxon */
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
 }
 
-/* Success flash — brief glow then settle */
-@keyframes success-flash {
-  0% {
-    box-shadow: 0 0 0 0 rgba(93, 138, 76, 0.5);
-  }
-  20% {
-    box-shadow: 0 0 24px 8px rgba(93, 138, 76, 0.35);
-  }
-  100% {
-    box-shadow: 0 4px 20px rgba(93, 138, 76, 0.15);
-  }
-}
-
-/* Subtle grain drift — keeps texture alive */
+/* Grain drift — keeps the matte texture from looking like a static overlay */
 @keyframes grain-drift {
   0%, 100% { transform: translate(0, 0); }
   25% { transform: translate(-2%, 1%); }
   50% { transform: translate(1%, -1%); }
   75% { transform: translate(-1%, 2%); }
+}
+
+/* Counting up a stat feels earned; jumping to it feels like a page load. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }

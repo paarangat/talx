@@ -10,94 +10,110 @@ html, body, #root {
   overflow: hidden;
   background: transparent;
   font-family: var(--font-ui);
-  color: var(--text-primary);
+  color: var(--ink);
   user-select: none;
   -webkit-user-select: none;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ─── Widget wrapper ─── */
+/* The window is larger than the widget so the contact shadow has room to
+   fall. Bottom-weighted, because that is the direction the shadow goes. */
 .widget-wrapper {
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  padding: 8px 12px 16px;
 }
 
-/* ─── Unified pill widget ─── */
+/* ═══ The object ═══
+   One opaque warm surface with a hairline, a contact shadow and a top bevel.
+   No colored halo: a 32px glow in the accent color was the loudest generic
+   tell in the old widget, and it is what made the thing read as a web
+   component floating over the desktop rather than an object resting on it. */
 .widget {
   position: relative;
-  border-radius: 50px;
-  background: var(--bg-idle);
-  transition:
-    width 0.35s var(--ease-spring),
-    background 0.35s var(--ease-spring),
-    box-shadow 0.35s var(--ease-spring);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 10px 20px -8px rgba(0, 0, 0, 0.28),
+    var(--bevel);
   overflow: hidden;
   cursor: grab;
-  box-shadow: 0 4px 20px rgba(44, 37, 32, 0.10);
   animation: enter 0.45s var(--ease-spring) both;
+  transition:
+    width 0.4s var(--ease-spring),
+    height 0.4s var(--ease-spring),
+    border-color 0.35s var(--ease-spring),
+    box-shadow 0.35s var(--ease-spring);
+}
+
+.widget:active {
+  cursor: grabbing;
+}
+
+.widget--pill {
+  border-radius: var(--radius-pill);
+  height: 38px;
+}
+
+.widget--card {
+  border-radius: var(--radius);
+  width: 300px;
 }
 
 .widget--idle {
-  width: 104px;
-  height: 28px;
+  width: 176px;
 }
 
-.widget--idle:hover {
-  box-shadow: 0 4px 18px rgba(44, 37, 32, 0.14), 0 0 20px var(--accent-glow);
-  transform: translateY(-1px);
+/* Compact until a partial transcript arrives — see Widget.tsx. */
+.widget--recording,
+.widget--polishing {
+  height: 122px;
+}
+
+.widget--recording.widget--streaming,
+.widget--polishing.widget--streaming {
+  height: 204px;
 }
 
 .widget--recording {
-  width: 204px;
-  height: 28px;
-  background: var(--bg-active);
-  box-shadow: 0 4px 20px rgba(44, 37, 32, 0.10), 0 0 32px var(--rec-glow);
-}
-
-.widget--polishing {
-  width: 104px;
-  height: 28px;
+  border-color: #f0cdae;
 }
 
 .widget--success {
-  width: 104px;
-  height: 28px;
-  background: var(--success);
-  box-shadow: 0 4px 20px rgba(93, 138, 76, 0.25), 0 0 32px var(--success-glow);
-  animation: success-flash 1.5s ease both;
+  height: 148px;
+  border-color: #d6d6d6;
 }
 
-/* Error ring overlay — declared after the state widths so it wins the cascade */
+.widget--success.widget--has-copy {
+  height: 192px;
+}
+
 .widget--error {
-  width: 284px;
-  height: 28px;
-  background: var(--bg-idle);
-  box-shadow: 0 0 0 2px var(--rec-red), 0 4px 20px rgba(192, 80, 58, 0.2);
-  animation: none;
+  width: 300px;
+  border-color: var(--terra);
+  animation: enter 0.3s var(--ease-spring) both, nudge 0.4s var(--ease-spring) 0.1s;
 }
 
-.widget__error-text {
-  position: relative;
-  z-index: 1;
-  padding: 0 14px;
-  max-width: 100%;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  line-height: 1;
-  color: var(--rec-red);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Deliberately not `.widget--error`: cancelling is a choice, not a failure,
+   so no terracotta and no nudge — just the idle pill with a muted label. */
+.widget--cancelled {
+  width: 176px;
 }
 
-/* ─── Grain overlay ─── */
+.widget--idle:hover {
+  border-color: var(--hairline-strong);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.10),
+    0 14px 26px -8px rgba(0, 0, 0, 0.32),
+    var(--bevel);
+}
+
+/* ═══ Grain — the matte, papery quality ═══ */
 .widget__grain {
-  content: '';
   position: absolute;
   inset: 0;
   background: var(--grain);
@@ -108,122 +124,384 @@ html, body, #root {
   z-index: 0;
 }
 
-/* ─── Idle: logo pill ─── */
-.widget__logo {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* ═══ Pill layouts ═══ */
+.widget__body {
   position: relative;
   z-index: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0 6px 0 14px;
 }
 
-.widget__logo-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--accent);
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: auto;
+}
+
+.brand__dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  box-shadow: 0 0 6px var(--accent-glow);
+  background: var(--copper-bright);
+  /* An inset ring reads as a machined pin rather than a status LED. */
+  box-shadow: inset 0 -1px 1px rgba(0, 0, 0, 0.28);
   flex-shrink: 0;
 }
 
-.widget__logo-text {
+.brand__name {
   font-family: var(--font-display);
-  font-size: 13px;
   font-style: italic;
-  color: var(--text-secondary);
+  font-size: var(--fs-md);
   line-height: 1;
-  letter-spacing: 0.02em;
+  color: var(--ink);
+  letter-spacing: 0.01em;
 }
 
-/* ─── Recording: rec dot + waveform + timer ─── */
-.widget__recording {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  position: relative;
-  z-index: 1;
-  width: 100%;
-}
-
-.widget__rec-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--rec-red);
-  border-radius: 50%;
-  flex-shrink: 0;
-  animation: rec-pulse 2s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-.widget__waveform {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.widget__bar {
-  width: 2.5px;
-  border-radius: 1.5px;
-  background: var(--accent);
-  opacity: 0.7;
-  animation: wave 0.8s ease-in-out infinite alternate;
-}
-
-.widget__timer {
+.kbd {
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-  font-weight: 400;
-  margin-left: auto;
+  font-size: var(--fs-micro);
+  line-height: 1;
+  color: var(--ink-soft);
+  background: var(--well);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-xs);
+  padding: 4px 6px;
+  flex-shrink: 0;
+}
+
+.kbd--bare {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-faint);
+}
+
+/* ═══ Error ═══ */
+.widget__err-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--terra);
+  flex-shrink: 0;
+}
+
+.widget__err-text {
+  font-size: var(--fs-sm);
+  line-height: 1;
+  color: var(--terra);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 8px;
+}
+
+/* ═══ Cancelled notice ═══ */
+.widget__notice-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+.widget__notice-text {
+  font-size: var(--fs-sm);
+  line-height: 1;
+  color: var(--ink-soft);
   white-space: nowrap;
 }
 
-/* ─── Polishing: pulsing dot ─── */
-.widget__pulse-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--accent);
-  border-radius: 50%;
+/* ═══ Card layout ═══ */
+.card {
   position: relative;
   z-index: 1;
-  animation: pill-pulse 1.2s ease-in-out infinite;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 13px 14px 11px;
+  gap: 11px;
 }
 
-/* ─── Success: checkmark ─── */
-.widget__check {
-  width: 16px;
-  height: 16px;
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  flex-shrink: 0;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  line-height: 1;
+}
+
+.status--rec { color: var(--terra); }
+.status--polish { color: var(--copper); }
+
+.status--done {
+  color: var(--moss);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Instrument Serif italic is the brand voice — used only on the two moments
+   that deserve it, the wordmark and the finished result. */
+.status__label {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--fs-md);
+  font-weight: 400;
+}
+
+.status__dot {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.status__ping {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.status__dot--still {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+
+.check {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--moss);
+  color: var(--card);
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+}
+
+.check svg { width: 11px; height: 11px; }
+
+.card__timer {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--ink-soft);
+  background: var(--well);
+  border-radius: var(--radius-xs);
+  padding: 4px 6px;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ═══ Meter ═══ */
+.meter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.meter__bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 1.5px;
+  background: var(--copper-bright);
+  /* Only height changes per frame, and it is a compositor-cheap property on
+     an element this small; transitioning it smooths the 18fps poll into
+     continuous motion instead of a visible step. */
+  transition: height 0.09s linear;
+}
+
+/* ═══ Polishing shimmer ═══ */
+.shimmer {
   position: relative;
-  z-index: 1;
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
 }
 
-.widget__check svg {
-  width: 12px;
-  height: 12px;
-}
-
-/* ─── Error ring ─── */
-.widget__error-ring {
+/* Reads as an inset track, not a stray divider: the well colour plus a
+   hairline shadow puts it below the surface the way the meter sits on it. */
+.shimmer::before {
+  content: '';
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border: 2px solid var(--rec-red);
-  pointer-events: none;
-  z-index: 2;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--well);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.10);
 }
 
-/* ─── Entrance animation ─── */
+.shimmer__sweep {
+  position: absolute;
+  width: 34%;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--copper), transparent);
+  animation: sweep 1.3s var(--ease-spring) infinite;
+}
+
+/* ═══ Transcript ═══ */
+.card__transcript {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  /* Older words dissolve upward instead of scrolling — the design system
+     forbids scrollbars inside the widget, and for streaming text the tail is
+     the part worth showing. */
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 34%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 34%);
+}
+
+/* Three lines then an ellipsis. The design system forbids scrollbars in the
+   widget, and the full text has already gone to the app being dictated into
+   (or to the clipboard), so the card is a receipt, not the document. */
+.card__result {
+  /* Pinned to exactly three lines rather than flexing: the card is a fixed
+     height, and letting this box absorb the remainder left the third line
+     clipped mid-glyph when the remainder came up a pixel short. */
+  flex: none;
+  height: calc(var(--fs-base) * 1.55 * 3);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.card__text {
+  font-size: var(--fs-base);
+  line-height: 1.55;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.card__text--waiting {
+  color: var(--ink-faint);
+  font-style: italic;
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+}
+
+.caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 13px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--copper);
+  animation: caret 1.1s ease infinite;
+}
+
+/* ═══ Copy action ═══ */
+.btn {
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--card);
+  background: var(--copper);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 9px 0;
+  width: 100%;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: var(--lift-1), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: background 0.25s var(--ease-spring), transform 0.25s var(--ease-spring);
+}
+
+.btn:hover { background: #a94a0b; transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn--done { background: var(--moss); }
+
+/* ═══ Card footer ═══ */
+.card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding-top: 9px;
+  border-top: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+
+.card__foot--stats {
+  justify-content: flex-start;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--ink-faint);
+}
+
+.card__sep { opacity: 0.5; }
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  line-height: 1;
+}
+
+.chip__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--moss);
+  flex-shrink: 0;
+}
+
+.card__hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-micro);
+  font-family: var(--font-mono);
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* Entrance is delayed once at launch so the widget does not race the window. */
 .widget-wrapper--launching .widget {
   animation-delay: 0.2s;
 }
 
-/* ─── Settings window override ─── */
+/* ═══ Settings window shell ═══ */
 .settings {
-  background: var(--bg-idle);
+  background: var(--paper);
   overflow: auto;
   width: 100%;
   height: 100%;

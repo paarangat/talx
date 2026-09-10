@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { Widget } from "./components/Widget";
-import type { WidgetState } from "./components/Widget";
+import type { PolishResult, WidgetState } from "./components/Widget";
 import { AUTO_PASTE_KEY, DEFAULT_HOTKEY, HOTKEY_KEY } from "./lib/settings";
 import {
   getErrorMessage,
@@ -12,27 +12,60 @@ import {
 } from "./lib/uiErrors";
 import { sessionStore } from "./stores/sessionStore";
 
+// Window = widget + the wrapper padding that gives the contact shadow room
+// to fall (8px top / 12px sides / 16px bottom, see .widget-wrapper).
+const PAD_X = 24;
+const PAD_Y = 24;
+const sized = (width: number, height: number) => ({
+  width: width + PAD_X,
+  height: height + PAD_Y,
+});
+
 const WINDOW_SIZES: Record<WidgetState, { width: number; height: number }> = {
-  idle: { width: 120, height: 36 },
-  recording: { width: 220, height: 36 },
-  polishing: { width: 120, height: 36 },
-  success: { width: 120, height: 36 },
+  idle: sized(176, 38),
+  // Recording and polishing share one card so the handoff is a cross-fade
+  // rather than a resize — the moment the transcript lands is the wrong
+  // time to make the window jump.
+  recording: sized(300, 122),
+  polishing: sized(300, 122),
+  success: sized(300, 148),
+  cancelled: sized(176, 38),
 };
 
-// Errors replace the pill contents with a message, so the window has to be
+/** The card grows a transcript pane the first time a partial streams in.
+ *  Only Soniox streams, so on the default provider it never does. */
+const STREAMING_CARD = sized(300, 204);
+
+const SUCCESS_WITH_COPY = sized(300, 192);
+
+// Errors replace the widget contents with a message, so the window has to be
 // wide enough to read it regardless of which state we were in.
-const ERROR_SIZE = { width: 300, height: 36 };
+const ERROR_SIZE = sized(300, 38);
+
+/** How long the result card stays up. Long enough to actually read the text —
+ *  the old 1.5s was tuned for a checkmark, not a card. */
+const RESULT_MS = 2600;
+/** Longer when a Copy button is the only route to the text. */
+const RESULT_WITH_COPY_MS = 7000;
+/** The cancel notice is an acknowledgement, not a message to read — it only
+ *  has to outlast the transition in so the user sees the press landed. */
+const CANCEL_MS = 1200;
 
 export const App = () => {
   const [state, setState] = useState<WidgetState>("idle");
   const [launching, setLaunching] = useState(true);
   const [timer, setTimer] = useState("0:00");
   const [error, setError] = useState<string | null>(null);
+  const [partial, setPartial] = useState("");
+  const [result, setResult] = useState<PolishResult | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [autoPaste, setAutoPaste] = useState(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const secondsRef = useRef(0);
   const polishGenRef = useRef(0);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSizeRef = useRef(WINDOW_SIZES.idle);
 
   // Entrance animation
   useEffect(() => {
@@ -40,14 +73,24 @@ export const App = () => {
     return () => clearTimeout(timeout);
   }, []);
 
-  // Resize window on state change
+  // Resize window on state change.
+  //
+  // Direction matters: growing has to happen BEFORE the CSS transition or the
+  // card is clipped by the old window bounds mid-animation, and shrinking has
+  // to happen AFTER it or the card is clipped on the way down. The old code
+  // special-cased only "leaving recording", which broke as soon as more than
+  // one state had a size of its own.
   useEffect(() => {
-    const size = error ? ERROR_SIZE : WINDOW_SIZES[state];
-    const prevState = document.body.dataset.widgetState;
-
-    // When shrinking (recording → polishing/idle), delay resize for CSS transition
-    const isShrinking =
-      prevState === "recording" && state !== "recording";
+    const showCopy = state === "success" && !autoPaste && result !== null;
+    const streaming =
+      partial.length > 0 && (state === "recording" || state === "polishing");
+    const size = error
+      ? ERROR_SIZE
+      : showCopy
+        ? SUCCESS_WITH_COPY
+        : streaming
+          ? STREAMING_CARD
+          : WINDOW_SIZES[state];
 
     const doResize = () => {
       invoke("resize_window", { width: size.width, height: size.height }).catch(
@@ -57,14 +100,22 @@ export const App = () => {
       );
     };
 
-    if (isShrinking) {
-      setTimeout(doResize, 350);
-    } else {
-      doResize();
-    }
+    const previous = lastSizeRef.current;
+    // `partial` is a dependency, so a streaming transcript re-runs this on
+    // every token. Without this guard that is 5–20 resize_window round trips a
+    // second, each repositioning an always-on-top window — which also fights
+    // the user dragging the widget while they dictate.
+    if (size.width === previous.width && size.height === previous.height) return;
 
-    document.body.dataset.widgetState = state;
-  }, [state, error]);
+    lastSizeRef.current = size;
+    const isShrinking = size.height < previous.height || size.width < previous.width;
+
+    if (isShrinking) {
+      const id = setTimeout(doResize, 320);
+      return () => clearTimeout(id);
+    }
+    doResize();
+  }, [state, error, autoPaste, result, partial]);
 
   // Sync tray status
   useEffect(() => {
@@ -147,6 +198,10 @@ export const App = () => {
         secondsRef.current = 0;
         setTimer("0:00");
         setError(null);
+        setPartial("");
+        setResult(null);
+        setCopied(false);
+        setAutoPaste(localStorage.getItem(AUTO_PASTE_KEY) !== "false");
         polishGenRef.current += 1;
 
         // Payload is set when the chosen mic was missing and we fell back to the default.
@@ -158,6 +213,13 @@ export const App = () => {
           secondsRef.current += 1;
           setTimer(formatTime(secondsRef.current));
         }, 1000);
+      }),
+
+      // Emitted by the Soniox streaming session. Groq Whisper is batch, so
+      // this never fires on the default provider and the card falls back to
+      // its listening state — which is why that state has to look finished.
+      listen<string>("transcription-partial", (event) => {
+        setPartial(event.payload);
       }),
 
       listen<string>("transcription-result", (event) => {
@@ -178,12 +240,15 @@ export const App = () => {
         setState("polishing");
         const gen = polishGenRef.current;
 
-        const handleResult = (text: string) => {
+        const handleResult = (text: string, model: string, latencyMs: number) => {
           if (polishGenRef.current !== gen) return;
 
           const wordCount = text.split(/\s+/).filter(Boolean).length;
+          const pasteEnabled = localStorage.getItem(AUTO_PASTE_KEY) !== "false";
+          setAutoPaste(pasteEnabled);
+          setResult({ text, model, latencyMs, wordCount });
 
-          if (localStorage.getItem(AUTO_PASTE_KEY) !== "false") {
+          if (pasteEnabled) {
             invoke("paste_to_focused_app", { text }).catch((err: unknown) => {
               console.error("Failed to paste to focused app:", err);
               showError(getPasteErrorMessage(err));
@@ -221,27 +286,57 @@ export const App = () => {
           sessionStore.addStats({ wordCount, durationSeconds });
 
           setState("success");
-          successTimeoutRef.current = setTimeout(() => {
-            invoke("dismiss_result").catch((err: unknown) => {
-              console.error("Failed to dismiss result:", err);
-            });
-            setState("idle");
-          }, 1500);
+          successTimeoutRef.current = setTimeout(
+            () => {
+              invoke("dismiss_result").catch((err: unknown) => {
+                console.error("Failed to dismiss result:", err);
+              });
+              setState("idle");
+            },
+            pasteEnabled ? RESULT_MS : RESULT_WITH_COPY_MS,
+          );
         };
 
         invoke<{ polished_text: string; model: string; latency_ms: number }>(
           "polish_transcript",
           { text: rawText },
         )
-          .then((result) => {
+          .then((polished) => {
             if (polishGenRef.current !== gen) return;
-            handleResult(result.polished_text);
+            handleResult(polished.polished_text, polished.model, polished.latency_ms);
           })
           .catch((err: unknown) => {
             if (polishGenRef.current !== gen) return;
             console.error("Polishing failed, using raw text:", err);
-            handleResult(rawText);
+            // The raw transcript is still the user's words, so it still ships —
+            // labelled as unpolished rather than silently attributed to a model.
+            handleResult(rawText, "unpolished", 0);
           });
+      }),
+
+      // The user pressed the hotkey (or Esc) mid-pipeline. Rust has already
+      // dropped anything its side produced; this is the frontend half.
+      listen("dictation-cancelled", () => {
+        // Bump first: a `polish_transcript` is very likely already in flight,
+        // and moving the generation is the only thing that stops its result
+        // from being pasted and saved once it resolves.
+        polishGenRef.current += 1;
+        clearTimer();
+        clearSuccessTimeout();
+        setError(null);
+        setPartial("");
+        setResult(null);
+
+        // The result card is post-paste, so a "Cancelled" flash there would
+        // read as an undo that never happened — dismiss it instead. Every
+        // earlier state gets the notice.
+        setState((current) =>
+          current === "recording" || current === "polishing" ? "cancelled" : "idle",
+        );
+        successTimeoutRef.current = setTimeout(() => {
+          setState("idle");
+          successTimeoutRef.current = null;
+        }, CANCEL_MS);
       }),
 
       listen<string>("recording-error", (event) => {
@@ -262,6 +357,23 @@ export const App = () => {
     };
   }, [clearTimer, clearSuccessTimeout, showError]);
 
+  // Esc while the widget has focus: the same escape hatch the hotkey offers,
+  // for when the cursor is already on the widget. Rust answers with
+  // `dictation-cancelled`, so the state teardown lives in that listener.
+  useEffect(() => {
+    if (state !== "recording" && state !== "polishing") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      invoke("cancel_dictation").catch((err: unknown) => {
+        console.error("Failed to cancel dictation:", err);
+        // Same surfacing the hotkey path gets via `recording-error`.
+        showError(getErrorMessage(err, "Could not cancel the dictation."));
+      });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showError, state]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -271,9 +383,29 @@ export const App = () => {
     };
   }, [clearErrorTimeout, clearTimer, clearSuccessTimeout]);
 
+  const showCopy = state === "success" && !autoPaste && result !== null;
+
+  const handleCopy = useCallback(() => {
+    if (!result) return;
+    invoke("copy_to_clipboard", { text: result.text })
+      .then(() => setCopied(true))
+      .catch((err: unknown) => {
+        console.error("Failed to copy result:", err);
+        showError(getErrorMessage(err, "Could not copy to the clipboard."));
+      });
+  }, [result, showError]);
+
   return (
     <div className={`widget-wrapper ${launching ? "widget-wrapper--launching" : ""}`}>
-      <Widget state={state} timer={timer} error={error} />
+      <Widget
+        state={state}
+        timer={timer}
+        error={error}
+        partial={partial}
+        result={result}
+        onCopy={showCopy ? handleCopy : null}
+        copied={copied}
+      />
     </div>
   );
 };

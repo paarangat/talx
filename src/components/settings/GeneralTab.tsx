@@ -8,11 +8,9 @@ import {
   DEFAULT_ASR_MODEL,
   DEFAULT_ASR_PROVIDER,
   DEFAULT_HOTKEY,
-  DEFAULT_LANGUAGE,
   DEFAULT_LLM_MODEL,
   DEFAULT_LLM_PROVIDER,
   HOTKEY_KEY,
-  LANGUAGE_KEY,
   LLM_MODEL_KEY,
   LLM_PROVIDER_KEY,
 } from "../../lib/settings";
@@ -27,9 +25,6 @@ export const GeneralTab = () => {
   const [autoPaste, setAutoPaste] = useState(() => {
     const stored = localStorage.getItem(AUTO_PASTE_KEY);
     return stored !== null ? stored === "true" : true;
-  });
-  const [language, setLanguage] = useState(() => {
-    return localStorage.getItem(LANGUAGE_KEY) ?? DEFAULT_LANGUAGE;
   });
   const [hotkey, setHotkey] = useState(() => {
     return localStorage.getItem(HOTKEY_KEY) ?? DEFAULT_HOTKEY;
@@ -58,12 +53,21 @@ export const GeneralTab = () => {
   // Lives in the Rust settings table (the backend reads it at polish time),
   // not localStorage. Default ON.
   const [contextAware, setContextAware] = useState(true);
+  // Also backend-owned: the ASR providers read it when a dictation starts.
+  // Empty is auto-detect, otherwise a bare ISO-639-1 code.
+  const [language, setLanguage] = useState("");
 
   useEffect(() => {
     invoke<boolean>("get_context_aware")
       .then(setContextAware)
       .catch((err: unknown) => {
         console.error("Failed to load context-aware setting:", err);
+      });
+
+    invoke<string>("get_language")
+      .then(setLanguage)
+      .catch((err: unknown) => {
+        console.error("Failed to load recognition language:", err);
       });
   }, []);
 
@@ -187,7 +191,7 @@ export const GeneralTab = () => {
   const handleProviderChange = (value: string) => {
     setAsrProvider(value);
     localStorage.setItem(ASR_PROVIDER_KEY, value);
-    const defaultModel = value === "groq" ? DEFAULT_ASR_MODEL : "soniox-v2";
+    const defaultModel = value === "groq" ? DEFAULT_ASR_MODEL : "stt-rt-v5";
     setAsrModel(defaultModel);
     localStorage.setItem(ASR_MODEL_KEY, defaultModel);
   };
@@ -308,7 +312,6 @@ export const GeneralTab = () => {
 
   return (
     <div className="settings-tab">
-      <h2 className="settings-tab__title">General</h2>
 
       {!accessibilityOk && (
         <section className="settings-tab__section">
@@ -337,7 +340,7 @@ export const GeneralTab = () => {
       )}
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Hotkey</h3>
+        <h3 className="settings-tab__section-header">Dictation</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Activation shortcut</span>
@@ -355,10 +358,6 @@ export const GeneralTab = () => {
             </button>
           </div>
         </div>
-      </section>
-
-      <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Microphone</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Input device</span>
@@ -407,7 +406,7 @@ export const GeneralTab = () => {
       </section>
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Speech Provider</h3>
+        <h3 className="settings-tab__section-header">Speech</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Transcription engine</span>
@@ -426,10 +425,6 @@ export const GeneralTab = () => {
             <option value="soniox">Soniox (Paid)</option>
           </select>
         </div>
-      </section>
-
-      <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Speech Model</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">ASR model</span>
@@ -474,7 +469,7 @@ export const GeneralTab = () => {
       </section>
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Polish Provider</h3>
+        <h3 className="settings-tab__section-header">Polishing</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">LLM engine</span>
@@ -493,10 +488,6 @@ export const GeneralTab = () => {
             <option value="openai">OpenAI (Paid)</option>
           </select>
         </div>
-      </section>
-
-      <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Polish Model</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">LLM model</span>
@@ -541,7 +532,7 @@ export const GeneralTab = () => {
       </section>
 
       <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Behavior</h3>
+        <h3 className="settings-tab__section-header">Behavior & language</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Auto-paste after polish</span>
@@ -610,25 +601,29 @@ export const GeneralTab = () => {
             <div className="settings-toggle__knob" />
           </button>
         </div>
-      </section>
-
-      <section className="settings-tab__section">
-        <h3 className="settings-tab__section-header">Language</h3>
         <div className="settings-tab__row">
           <div className="settings-tab__row-info">
             <span className="settings-tab__label">Recognition language</span>
-            <span className="settings-tab__description">Language(s) for speech recognition</span>
+            <span className="settings-tab__description">
+              Auto-detect handles mixed speech. Pick one to bias recognition toward it.
+            </span>
           </div>
           <select
             className="settings-select"
             value={language}
             onChange={(event) => {
-              setLanguage(event.target.value);
-              localStorage.setItem(LANGUAGE_KEY, event.target.value);
+              const next = event.target.value;
+              const previous = language;
+              setLanguage(next);
+              invoke("set_language", { language: next }).catch((err: unknown) => {
+                console.error("Failed to save recognition language:", err);
+                setLanguage(previous);
+              });
             }}
           >
+            <option value="">Auto-detect</option>
             <option value="en">English</option>
-            <option value="hi+en">Hindi + English</option>
+            <option value="hi">Hindi</option>
           </select>
         </div>
       </section>

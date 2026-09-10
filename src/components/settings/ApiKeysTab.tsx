@@ -126,7 +126,6 @@ export const ApiKeysTab = () => {
 
   return (
     <div className="settings-tab">
-      <h2 className="settings-tab__title">API Keys</h2>
 
       <section className="settings-tab__section">
         <h3 className="settings-tab__section-header">Transcription</h3>
